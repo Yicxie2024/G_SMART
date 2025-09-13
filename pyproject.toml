@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "search-and-learn"
+version = "0.0.1"
+description = "SMART: Search and Learn"
+requires-python = ">=3.10"
+# 依赖：按你需要的为准（这里给出常见的一组，必要时再增删）
+dependencies = [
+  "transformers>=4.55",
+  "datasets>=2.20",
+  "accelerate>=0.33",
+  "huggingface_hub>=0.23",
+  "tokenizers>=0.21",
+  "sentencepiece>=0.2",
+  "vllm>=0.6.0",
+  "pyyaml",
+  "tqdm",
+  "evaluate>=0.4",
+  "jsonlines",
+  "latex2sympy2",
+  "sympy",
+  "antlr4-python3-runtime",
+]
+
+[project.optional-dependencies]
+dev = ["black", "isort", "pytest"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+# 关键：只发现真实存在的顶层包（sal 以及可能的 evaluation）
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["sal*", "evaluation*"]
+exclude = ["*.tests*", "tests*"]

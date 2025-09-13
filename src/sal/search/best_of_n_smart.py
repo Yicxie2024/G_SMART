@@ -175,6 +175,7 @@ def smart_best_of_n(x, config: Config, slm: LLM, prm: PRM, llm: None):
     pred = [completion[np.argmax(s)] for completion, s in zip(completions, agg_scores)]
 
     x["completions"] = completions
+    x["scores"] = scores  # 保存原始scores
     x["pred"] = pred
 
     return x

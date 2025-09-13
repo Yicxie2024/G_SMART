@@ -36,13 +36,13 @@ def get_dataset(config: Config) -> Dataset:
         dataset = pd.read_json("train.jsonl", lines=True)
         dataset = Dataset.from_pandas(dataset)
     else:
-        dataset = load_dataset(config.dataset_name, split=config.dataset_split, trust_remote_code=True)
+        dataset = load_dataset(config.dataset_name, split=config.dataset_split)
 
     if config.dataset_start is not None and config.dataset_end is not None:
         dataset = dataset.select(range(config.dataset_start, config.dataset_end))
     if config.num_samples is not None:
         dataset = dataset.select(range(min(len(dataset), config.num_samples)))
-
+    dataset = dataset.select(range(2))
     return dataset
 
 
@@ -80,37 +80,39 @@ def save_dataset(dataset, config):
         if config.output_dir is None:
             config.output_dir = f"data/{config.model_path}"
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
-        
+
         # Name the folder based on the approach used
         if config.draft_model_path is not None:
-            if config.score_method == 'prm':
+            if config.score_method == "prm":
                 folder_name = "smart_prm"
-            elif config.score_method == 'conf':
+            elif config.score_method == "conf":
                 folder_name = "smart_conf"
-        else: 
-            if config.score_method == 'prm':
+        else:
+            if config.score_method == "prm":
                 folder_name = "base_prm"
-            elif config.score_method == 'conf':
+            elif config.score_method == "conf":
                 folder_name = "base_conf"
-        
+
         # Name the appoarch in likelihood score
         if config.beam_width == 1:
             approach_fn = "best_of_n"
-        else: 
+        else:
             approach_fn = config.approach
 
         # Save the dataset to a jsonl file by splitting the dataset or not
         if config.dataset_start is not None and config.dataset_end is not None:
             dataset.to_json(
-                f"{config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_{config.num_samples}_datasplit_{config.dataset_start}-{config.dataset_end}.jsonl", lines=True
+                f"{config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_{config.num_samples}_datasplit_{config.dataset_start}-{config.dataset_end}.jsonl",
+                lines=True,
             )
             logger.info(
                 f"Saved completions to {config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_{config.num_samples}_datasplit_{config.dataset_start}-{config.dataset_end}.jsonl"
             )
         else:
             dataset.to_json(
-                    f"{config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_{config.num_samples}.jsonl", lines=True
-                )
+                f"{config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_{config.num_samples}.jsonl",
+                lines=True,
+            )
             logger.info(
                 f"Saved completions to {config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_{config.num_samples}.jsonl"
             )

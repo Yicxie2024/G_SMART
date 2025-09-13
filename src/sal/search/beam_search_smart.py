@@ -310,15 +310,17 @@ def smart_beam_search(examples, config: Config, slm: LLM, prm: PRM, llm: None):
     for results in beam_results:
         grouped_results[results.prompt].append(results)
 
-    results = {"completions": [], "pred": []}
+    results = {"completions": [], "scores": [], "pred": []}
     tokenizer = slm.get_tokenizer()
 
     for p in problems:
         beams = grouped_results[p]
         completions = [b.current_text for b in beams]
+        scores = [b.all_scores for b in beams]  # 保存原始scores
         pred = completions[np.argmax([
             aggregate_scores(b.all_scores, config.agg_strategy) for b in beams
         ])]
         results["completions"].append(completions)
+        results["scores"].append(scores)  # 保存scores
         results["pred"].append(pred)
     return results

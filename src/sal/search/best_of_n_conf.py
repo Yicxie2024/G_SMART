@@ -118,6 +118,7 @@ def best_of_n_conf(x, config: Config, llm: LLM, prm: PRM):
     pred = [completion[np.argmax(s)] for completion, s in zip(completions, agg_scores)]
 
     x["completions"] = completions
+    x["scores"] = scores  # 保存原始scores
     x["pred"] = pred
 
     return x
