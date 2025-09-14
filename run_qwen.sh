@@ -60,7 +60,7 @@ echo "Using OPTION=$OPTION"
 
 # ========= 与你原脚本等价的分支路由 =========
 CONFIG=""
-EXTRA_ARGS="--n=8"
+EXTRA_ARGS="--n=16"
 
 case "$OPTION" in
   # ############ run large model ############
@@ -99,7 +99,7 @@ case "$OPTION" in
   # run smart, beam-search, score-method=prm
   5)
     CONFIG="recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml"
-    EXTRA_ARGS="$EXTRA_ARGS --beam_width=2"
+    EXTRA_ARGS="$EXTRA_ARGS --beam_width=4"
     ;;
 
   *)

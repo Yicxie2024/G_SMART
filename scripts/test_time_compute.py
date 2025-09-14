@@ -100,13 +100,14 @@ def main():
             enable_prefix_caching=True,
             seed=config.seed,
             tensor_parallel_size=num_gpus,
-            max_model_len=2048,
+            max_model_len=8192,  # 增加到8192以支持更长的输入
         )
         
         llm = AutoModelForCausalLM.from_pretrained(
             config.model_path,
             device_map="auto",
             torch_dtype=torch.bfloat16,
+            max_length=8192,  # 确保主模型也支持更长的输入
         ).eval()
         
         if config.score_method == 'prm':
@@ -143,7 +144,7 @@ def main():
             enable_prefix_caching=True,
             seed=config.seed,
             tensor_parallel_size=num_gpus,
-            max_model_len=2048,
+            max_model_len=8192,  # 增加到8192以支持更长的输入
         )
         
         if config.score_method == 'prm':

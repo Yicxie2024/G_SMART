@@ -42,7 +42,6 @@ def get_dataset(config: Config) -> Dataset:
         dataset = dataset.select(range(config.dataset_start, config.dataset_end))
     if config.num_samples is not None:
         dataset = dataset.select(range(min(len(dataset), config.num_samples)))
-    dataset = dataset.select(range(2))
     return dataset
 
 

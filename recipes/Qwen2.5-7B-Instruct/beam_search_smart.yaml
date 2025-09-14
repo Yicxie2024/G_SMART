@@ -10,8 +10,8 @@ seed: 0
 smart_search: true
 
 
-n: 8                 # 原来用 16，先减半
-beam_width: 2        # 原来 4；先 1~2
+n: 16                 # 原来用 16，先减半
+beam_width: 4        # 原来 4；先 1~2
 # specify n
 # specify beam_width
 # specify score_method: default is prm
