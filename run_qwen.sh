@@ -92,7 +92,7 @@ case "$OPTION" in
   # ############ run smart ############
   # run smart, best-of-n, score-method=prm
   4)
-    CONFIG="recipes/Llama-3.1-8B-Instruct/beam_search_smart.yaml"
+    CONFIG="recipes/Qwen2.5-1.5B-Instruct/beam_search.yaml"
     EXTRA_ARGS="$EXTRA_ARGS --beam_width=1"
     ;;
 
@@ -100,6 +100,25 @@ case "$OPTION" in
   5)
     CONFIG="recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml"
     EXTRA_ARGS="$EXTRA_ARGS --beam_width=4"
+    ;;
+  
+    # run smart, beam-search, score-method=sse 
+  6)
+    CONFIG=""
+    EXTRA_ARGS="$EXTRA_ARGS \
+      --approach=beam_search \
+      --smart_search=True \
+      --score_method=sse \
+      --beam_width=4 \
+      --n=16 \
+      --num_iterations=20 \
+      --lookahead=1 \
+      --model_path=/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct \
+      --draft_model_path=/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct \
+      --sse_samples=6 \
+      --sse_embed_model=sentence-transformers/all-MiniLM-L6-v2 \
+      --sse_sim_threshold=0.85 \
+      --sse_max_step_tokens=256"
     ;;
 
   *)
