@@ -102,37 +102,26 @@ case "$OPTION" in
     EXTRA_ARGS="$EXTRA_ARGS --beam_width=4"
     ;;
   
-    # run smart, beam-search, score-method=sse 
+  # run smart, beam-search, score-method=sse 
   6)
-    CONFIG=""
-    EXTRA_ARGS="$EXTRA_ARGS \
-      --approach=beam_search \
-      --smart_search=True \
-      --score_method=sse \
-      --beam_width=4 \
-      --n=16 \
-      --num_iterations=20 \
-      --lookahead=1 \
-      --model_path=/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct \
-      --draft_model_path=/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct \
-      --sse_samples=6 \
-      --sse_embed_model=sentence-transformers/all-MiniLM-L6-v2 \
-      --sse_sim_threshold=0.85 \
-      --sse_max_step_tokens=256"
+    CONFIG="recipes/Qwen2.5-7B-Instruct/beam_search_smart_sse.yaml"
+    EXTRA_ARGS=""   # YAML 里已经写好了，不需要再传
     ;;
-
-  *)
-    echo "Unknown OPTION=$OPTION (valid: 0..5)"; exit 1;;
+    *)
+    echo "Unknown OPTION=$OPTION (valid: 0..6)"; exit 1;;
 esac
 
 echo "CONFIG: $CONFIG"
 echo "ARGS:   $EXTRA_ARGS"
 
-# 如需固定到某个项目根目录执行（可选）：
-# cd /storage/ukp/work/xie12/your_project_root
-
 echo "=== Running test_time_compute.py ==="
-srun --unbuffered python scripts/test_time_compute.py "$CONFIG" $EXTRA_ARGS
+if [[ -n "$CONFIG" ]]; then
+  # CONFIG 非空时，既传 config 文件也传额外参数
+  srun --unbuffered python scripts/test_time_compute.py "$CONFIG" $EXTRA_ARGS
+else
+  # CONFIG 为空（例如 OPTION=6），只传命令行参数，避免空字符串参数
+  srun --unbuffered python scripts/test_time_compute.py $EXTRA_ARGS
+fi
 
 echo "=== Done ==="
 date

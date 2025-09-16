@@ -1,0 +1,40 @@
+# recipes/Qwen2.5-7B-Instruct/beam_search_smart_sse.yaml
+
+# —— 基本流程 ——
+approach: beam_search
+smart_search: true
+score_method: sse
+
+# —— 模型路径 ——
+model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-7B-Instruct
+draft_model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct
+gpu_memory_utilization: 0.4
+
+# —— 采样超参 ——
+n: 16
+temperature: 0.8
+top_p: 1.0
+max_tokens: 2048
+seed: 0
+
+# —— Beam / SMART 设置 ——
+beam_width: 4
+num_iterations: 20
+lookahead: 1
+threshold: 0.9
+filter_duplicates: true
+
+# —— SSE 参数 ——
+sse_samples: 6
+sse_embed_model: sentence-transformers/all-MiniLM-L6-v2
+sse_sim_threshold: 0.85
+sse_max_step_tokens: 128
+
+# —— 运行批量 ——
+search_batch_size: 1
+
+custom_chat_template: null
+
+# —— 数据与输出（可按需改）——
+dataset_split: test
+output_dir: /mnt/beegfs/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart

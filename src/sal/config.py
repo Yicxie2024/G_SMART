@@ -60,7 +60,7 @@ class Config:
     dataset_config: str = None
     dataset_split: str = "test"
     dataset_start: int = None
-    dataset_end: int = 2
+    dataset_end: int = None
     num_samples: int = None
 
     # Chat template related options

@@ -41,6 +41,13 @@ from sal.utils.score import aggregate_scores
 
 from transformers import AutoTokenizer
 
+def _agg_for_selection(beam, config):
+    if config.score_method == "sse":
+        # SSE 固定用 'last'，与 A) 写入的步分一致（0~1 范围）
+        return aggregate_scores(beam.all_scores, "last")
+    else:
+        # 非 SSE 完全沿用原配置（保持 PRM/Conf 的既有行为）
+        return aggregate_scores(beam.all_scores, config.agg_strategy)
 
 def _beam_search(
     batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None
@@ -75,8 +82,7 @@ def _beam_search(
         stop=["\n\n"],
         include_stop_str_in_output=True,
         n=1,
-        logprobs=need_lp,
-        top_logprobs=(2 if need_lp else None),
+        logprobs=(1 if need_lp else None),
     )
 
     beams: list[Beam] = []
@@ -138,8 +144,7 @@ def _beam_search(
                 max_tokens=config.max_tokens,
                 top_p=config.top_p,
                 n=1,
-                logprobs=False,  # 最后一轮不需要 online step score
-                top_logprobs=None,
+                logprobs=None,  # 最后一轮不需要 online step score
             )
 
         convs = [
@@ -293,9 +298,7 @@ def _beam_search(
             prev_active_beams = [prev_active_beams[i] for i in keep_indices]
 
             # 由于 agg_scores_by_q 是按 prompt 分组的，我们在下方直接从 active_beams 现值重算一份扁平聚合分，避免错位
-        flat_agg = [
-            aggregate_scores(b.all_scores, config.agg_strategy) for b in active_beams
-        ]
+        flat_agg = [_agg_for_selection(b, config) for b in active_beams]
 
         # Get indices for top (config.n / config.beam_width) completions
         top_k = max(1, (config.n // config.beam_width))

@@ -75,43 +75,58 @@ def save_dataset(dataset, config):
                 logger.error(f"Error pushing dataset to the Hub: {e}")
                 time.sleep(5)
         logger.info(f"Pushed dataset to {url}")
-    else:
-        if config.output_dir is None:
-            config.output_dir = f"data/{config.model_path}"
-        Path(config.output_dir).mkdir(parents=True, exist_ok=True)
+        return
 
-        # Name the folder based on the approach used
-        if config.draft_model_path is not None:
-            if config.score_method == "prm":
-                folder_name = "smart_prm"
-            elif config.score_method == "conf":
-                folder_name = "smart_conf"
-        else:
-            if config.score_method == "prm":
-                folder_name = "base_prm"
-            elif config.score_method == "conf":
-                folder_name = "base_conf"
+    # ------------ 本地保存路径与命名规则（健壮版） ------------
+    # 根目录
+    out_root = Path(config.output_dir or f"data/{config.model_path}")
+    out_root.mkdir(parents=True, exist_ok=True)
 
-        # Name the appoarch in likelihood score
-        if config.beam_width == 1:
-            approach_fn = "best_of_n"
-        else:
-            approach_fn = config.approach
+    # 文件夹名：base/smart + score_method（自动兼容 prm/conf/sse/...）
+    is_smart = (getattr(config, "draft_model_path", None) is not None) or \
+               (getattr(config, "smart_search", False) is True)
+    base_tag = "smart" if is_smart else "base"
+    score_tag = getattr(config, "score_method", "prm")
+    folder_name = f"{base_tag}_{score_tag}"
+    out_dir = out_root / folder_name
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save the dataset to a jsonl file by splitting the dataset or not
-        if config.dataset_start is not None and config.dataset_end is not None:
-            dataset.to_json(
-                f"{config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_{config.num_samples}_datasplit_{config.dataset_start}-{config.dataset_end}.jsonl",
-                lines=True,
-            )
-            logger.info(
-                f"Saved completions to {config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_{config.num_samples}_datasplit_{config.dataset_start}-{config.dataset_end}.jsonl"
-            )
-        else:
-            dataset.to_json(
-                f"{config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_{config.num_samples}.jsonl",
-                lines=True,
-            )
-            logger.info(
-                f"Saved completions to {config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_{config.num_samples}.jsonl"
-            )
+    # approach 名：beam_width=1 就当作 best_of_n；否则用 config.approach
+    #（可选也可加上 _smart 后缀，但为了与你原来一致，这里不加）
+    approach_fn = "best_of_n" if getattr(config, "beam_width", 1) == 1 else config.approach
+
+    # 兜底/规范化字段，避免 None 出现在文件名里
+    T = config.temperature
+    top_p = config.top_p
+    n = getattr(config, "n", 1) or 1
+    m = getattr(config, "beam_width", 1) or 1
+    iters = getattr(config, "num_iterations", 1) or 1
+    look = getattr(config, "lookahead", 0) or 0
+    seed = getattr(config, "seed", 42)
+    agg = getattr(config, "agg_strategy", "last")
+    threshold = getattr(config, "threshold", None)
+
+    num_samples = getattr(config, "num_samples", None)
+    num_samples_tag = str(num_samples) if num_samples is not None else "all"
+
+    ds_start = getattr(config, "dataset_start", None)
+    ds_end = getattr(config, "dataset_end", None)
+    split_tag = f"{ds_start}-{ds_end}" if (ds_start is not None and ds_end is not None) else "full"
+
+    # 组装文件名
+    # 与你原先一致的核心超参都保留；当有 threshold 时才追加，避免无意义字段
+    base_name = (
+        f"{approach_fn}_completions_"
+        f"T-{T}--top_p-{top_p}"
+        f"--n-{n}--m-{m}--iters-{iters}--look-{look}"
+        f"--seed-{seed}--agg_strategy--{agg}"
+    )
+    if threshold is not None:
+        base_name += f"_threshold-{threshold}"
+
+    filename = f"{base_name}_{num_samples_tag}_datasplit_{split_tag}.jsonl"
+    out_path = out_dir / filename
+
+    # 保存为 JSONL
+    dataset.to_json(str(out_path), lines=True)
+    logger.info(f"Saved completions to {out_path}")

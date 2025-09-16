@@ -70,30 +70,34 @@ def main():
     num_gpus = torch.cuda.device_count()
     print("="*20)
     print("The number of available GPUs:", num_gpus)
-    
-    # configure approach name
+
+    # === 选择搜索函数 ===
     approach_suffix = "_smart" if config.smart_search else ""
-    approach_suffix += "_conf" if config.score_method == 'conf' else ""
+    # 仅在 conf 时加 _conf；sse/ prm 都不要加
+    approach_suffix += "_conf" if config.score_method == "conf" else ""
     approach_name = config.approach + approach_suffix
-    
+
     if approach_name not in APPROACHES:
-        raise ValueError(f"Invalid score method: {config.score_method}")
+        raise ValueError(f"Invalid approach: {approach_name}")
     approach_fn = APPROACHES[approach_name]
-    
-    # log the search method and score method
-    print("\nUsing " + \
-        ("SMART" if config.smart_search else "Baseline") + \
-        " search.\nUsing " + \
-        ("Confidence" if config.score_method == 'conf' else "PRM") + \
-        " based score.\n")
+
+    # === 打印配置 ===
+    score_label = {"prm": "PRM", "conf": "Confidence", "sse": "SSE"}
+    print(
+        "\nUsing " + ("SMART" if config.smart_search else "Baseline") +
+        f" search.\nUsing {score_label.get(config.score_method, config.score_method)} based score.\n"
+    )
     if config.smart_search:
         print("Threshold:", config.threshold)
     print("N:", config.n)
     print("Beam width:", config.beam_width)
     print("="*20)
-    
-    if config.smart_search:                
+
+    # === 主流程 ===
+    if config.smart_search:
         mp.set_start_method("spawn", force=True)
+
+        # draft 小模型（SLM，给前瞻/短采样等）
         slm = LLM(
             model=config.draft_model_path,
             gpu_memory_utilization=config.gpu_memory_utilization,
@@ -102,41 +106,30 @@ def main():
             tensor_parallel_size=num_gpus,
             max_model_len=8192,  # 增加到8192以支持更长的输入
         )
-        
+
+        # 主模型（HF transformers，用于 SMART 纠偏分支）
         llm = AutoModelForCausalLM.from_pretrained(
             config.model_path,
             device_map="auto",
             torch_dtype=torch.bfloat16,
             max_length=8192,  # 确保主模型也支持更长的输入
         ).eval()
-        
-        if config.score_method == 'prm':
-            prm = load_prm(config)
 
-            dataset = get_dataset(config)
-            dataset = dataset.map(
-                approach_fn,
-                batched=True,
-                batch_size=config.search_batch_size,
-                fn_kwargs={"config": config, "slm": slm, "prm": prm, "llm": llm},
-                desc="Running search",
-                load_from_cache_file=False,
-            )    
-        elif config.score_method == 'conf':
-            prm = load_prm(config)
-            
-            dataset = get_dataset(config)
-            dataset = dataset.map(
-                approach_fn,
-                batched=True,
-                batch_size=config.search_batch_size,
-                fn_kwargs={"config": config, "slm": slm, "prm": prm, "llm": llm},
-                desc="Running search",
-                load_from_cache_file=False,
-            )
-        else:
-            raise ValueError(f"Invalid score method: {config.score_method}")
+        # 只有 prm 模式才加载 PRM，其他模式设为 None
+        prm = load_prm(config) if config.score_method == "prm" else None
+
+        dataset = get_dataset(config)
+        dataset = dataset.map(
+            approach_fn,
+            batched=True,
+            batch_size=config.search_batch_size,
+            fn_kwargs={"config": config, "slm": slm, "prm": prm, "llm": llm},
+            desc="Running search",
+            load_from_cache_file=False,
+        )
+
     else:
+        # Baseline：vLLM 只跑一个模型
         llm = LLM(
             model=config.model_path,
             revision="main",
@@ -146,54 +139,42 @@ def main():
             tensor_parallel_size=num_gpus,
             max_model_len=8192,  # 增加到8192以支持更长的输入
         )
-        
-        if config.score_method == 'prm':
-            prm = load_prm(config)
 
-            dataset = get_dataset(config)
-            dataset = dataset.map(
-                approach_fn,
-                batched=True,
-                batch_size=config.search_batch_size,
-                fn_kwargs={"config": config, "llm": llm, "prm": prm},
-                desc="Running search",
-                load_from_cache_file=False,
-            )
-        
-        elif config.score_method == 'conf':
-            prm = load_prm(config)
-            
-            dataset = get_dataset(config)
-            dataset = dataset.map(
-                approach_fn,
-                batched=True,
-                batch_size=config.search_batch_size,
-                fn_kwargs={"config": config, "llm": llm, "prm": prm},
-                desc="Running search",
-                load_from_cache_file=False,
-            )    
-        else: 
-            raise ValueError(f"Invalid score method: {config.score_method}")
+        # 同样：只有 prm 才加载 PRM
+        prm = load_prm(config) if config.score_method == "prm" else None
 
+        dataset = get_dataset(config)
+        dataset = dataset.map(
+            approach_fn,
+            batched=True,
+            batch_size=config.search_batch_size,
+            fn_kwargs={"config": config, "llm": llm, "prm": prm},
+            desc="Running search",
+            load_from_cache_file=False,
+        )
+
+    # === 评分/保存/评测 ===
     dataset = score(dataset, config)
     save_dataset(dataset, config)
-    
+
     import sys
     sys.path.append("src/evaluation")
     from evaluation.evaluate import evaluate
-    if config.approach == "best_of_n" or config.approach == "beam_search":
+
+    if config.approach in ("best_of_n", "beam_search"):
         subsets = [2**i for i in range(config.n) if 2**i <= config.n]
         keys = []
         for n in subsets:
             keys.extend([f"pred_weighted@{n}", f"pred_maj@{n}", f"pred_naive@{n}"])
     else:
         keys = ["pred"]
-        
+
     dataset, result = evaluate(data_name="math", prompt_type=None, samples=dataset, pred_keys=keys)
+    from datasets import Dataset
     dataset = Dataset.from_list([{k: v for k, v in dict(sample).items() if k != 'pred_completions'} for sample in dataset])
-    
+
     save_dataset(dataset, config)
-    
+
     logger.info(result)
     logger.info("Done 🔥!")
 
