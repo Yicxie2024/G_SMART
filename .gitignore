@@ -31,4 +31,14 @@
 #Ignore .egg-tar-gz files
 *.egg-tar-gz
 #Ignore __pycache__ files
-__pycache__
+# Python bytecode
+*.pyc
+*.pyo
+__pycache__/
+
+# 打包生成物
+*.egg-info/
+*.dist-info/
+PKG-INFO
+SOURCES.txt
+top_level.txt
