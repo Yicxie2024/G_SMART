@@ -1,0 +1,34 @@
+# Ignore .pyc files
+*.pyc   
+# Ignore .pyo files
+*.pyo
+# Ignore .pyd files
+*.pyd
+# Ignore .pyw files
+*.pyw
+# Ignore .pyz files
+*.pyz
+# Ignore .pyzw files
+*.pyzw
+# Ignore .txt files
+*.txt
+# Ignore .yaml files
+*.yaml
+# Ignore .yml files
+*.yml
+# Ignore .json files
+*.json
+# Ignore .jsonl files
+*.jsonl
+#Ignore .egg-info files
+*.egg-info
+#Ignore .egg files
+*.egg
+#Ignore .egg-zip files
+*.egg-zip
+#Ignore .egg-tar files
+*.egg-tar
+#Ignore .egg-tar-gz files
+*.egg-tar-gz
+#Ignore __pycache__ files
+__pycache__
