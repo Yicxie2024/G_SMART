@@ -42,3 +42,14 @@ __pycache__/
 PKG-INFO
 SOURCES.txt
 top_level.txt
+
+# 敏感文件和密钥
+.secrets/
+*.secrets
+*_token
+*_key
+*_secret
+.env
+.env.local
+.env.production
+.env.staging
