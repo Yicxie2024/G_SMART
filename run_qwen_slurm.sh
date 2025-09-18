@@ -42,21 +42,23 @@ export MPLCONFIGDIR="$BASE/tmp/matplotlib"
 # 关闭 vLLM usage（避免去 ~ 写）
 export VLLM_NO_USAGE=1
 
-# Load API tokens from environment variables or secret files
-# Priority: environment variables > secret files > error if missing
+# Load API tokens from environment variables or secret files (optional)
+# Priority: environment variables > secret files > continue without warning
 if [[ -z "${HUGGINGFACE_HUB_TOKEN:-}" ]]; then
   if [[ -f "$BASE/.secrets/hf_token" ]]; then
     export HUGGINGFACE_HUB_TOKEN="$(<"$BASE/.secrets/hf_token")"
+    echo "Loaded HUGGINGFACE_HUB_TOKEN from secret file"
   else
-    echo "Warning: HUGGINGFACE_HUB_TOKEN not set. Set it via environment variable or create $BASE/.secrets/hf_token"
+    echo "Info: HUGGINGFACE_HUB_TOKEN not set. Some features may be limited."
   fi
 fi
 
 if [[ -z "${WANDB_API_KEY:-}" ]]; then
   if [[ -f "$BASE/.secrets/wandb_key" ]]; then
     export WANDB_API_KEY="$(<"$BASE/.secrets/wandb_key")"
+    echo "Loaded WANDB_API_KEY from secret file"
   else
-    echo "Warning: WANDB_API_KEY not set. Set it via environment variable or create $BASE/.secrets/wandb_key"
+    echo "Info: WANDB_API_KEY not set. Logging may be limited."
   fi
 fi
 
@@ -71,6 +73,14 @@ export PYTHONPATH="$PWD/src:${PYTHONPATH:-}"
 export SEED=0
 OPTION=${1:-0}
 
+# Clean the option parameter (remove any non-numeric characters)
+OPTION=$(echo "$OPTION" | sed 's/[^0-9]//g')
+if [[ -z "$OPTION" ]]; then
+  OPTION=0
+fi
+
+echo "=== Using OPTION=$OPTION ==="
+
 case "$OPTION" in
   0) CONFIG=recipes/Qwen2.5-7B-Instruct/best_of_n.yaml;         EXTRA=(--n=16 --beam_width=1 --score_method=prm) ;;
   1) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search.yaml;       EXTRA=(--n=16 --beam_width=4 --score_method=prm) ;;
@@ -78,7 +88,7 @@ case "$OPTION" in
   3) CONFIG=recipes/Qwen2.5-1.5B-Instruct/best_of_n.yaml;       EXTRA=(--n=16 --beam_width=1 --score_method=prm) ;;
   4) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=1 --score_method=prm) ;;
   5) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=prm) ;;
-  *) echo "Unknown OPTION=$OPTION" >&2; exit 1 ;;
+  *) echo "Unknown OPTION=$OPTION. Valid options are 0-5." >&2; exit 1 ;;
 esac
 
 echo "=== Using LOCAL cache at: $LOCAL ==="
