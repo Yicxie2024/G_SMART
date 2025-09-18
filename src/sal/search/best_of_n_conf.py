@@ -119,5 +119,6 @@ def best_of_n_conf(x, config: Config, llm: LLM, prm: PRM):
 
     x["completions"] = completions
     x["pred"] = pred
+    x["scores"] = scores
 
     return x

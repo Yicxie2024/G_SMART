@@ -176,5 +176,6 @@ def smart_best_of_n(x, config: Config, slm: LLM, prm: PRM, llm: None):
 
     x["completions"] = completions
     x["pred"] = pred
+    x["scores"] = scores
 
     return x

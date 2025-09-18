@@ -1,9 +1,45 @@
-from .best_of_n import best_of_n
-from .best_of_n_conf import best_of_n_conf
-from .best_of_n_spec import speculative_best_of_n
+# src/sal/search/__init__.py
 
-from .beam_search import beam_search
-from .beam_search_conf import beam_search_conf
-from .beam_search_spec import speculative_beam_search
-from .beam_search_spec_conf import speculative_beam_search_conf
-from .diverse_verifier_tree_search import dvts
+# --- best-of-n 系列 ---
+try:
+    from .best_of_n import best_of_n as speculative_best_of_n  # 兼容旧名
+except Exception:
+    pass
+try:
+    from .best_of_n import best_of_n
+except Exception:
+    pass
+try:
+    from .best_of_n_conf import best_of_n_conf
+except Exception:
+    pass
+try:
+    from .best_of_n_smart import smart_best_of_n as best_of_n_smart
+except Exception:
+    pass
+
+# --- beam-search 系列 ---
+try:
+    from .beam_search import beam_search
+except Exception:
+    pass
+try:
+    from .beam_search_conf import beam_search_conf
+except Exception:
+    pass
+try:
+    from .beam_search_smart import smart_beam_search as beam_search_smart
+except Exception:
+    pass
+try:
+    from .beam_search_smart_conf import smart_beam_search_conf as beam_search_smart_conf
+except Exception:
+    pass
+
+# --- utils ---
+try:
+    from .utils import *
+except Exception:
+    pass
+
+__all__ = [name for name in globals().keys() if not name.startswith("_")]

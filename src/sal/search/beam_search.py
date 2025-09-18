@@ -29,7 +29,9 @@ logger = logging.getLogger()
 from sal.utils.score import aggregate_scores
 
 
-def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> tuple[list[Beam], int]:
+def _beam_search(
+    batch_of_prompts, config: Config, llm: LLM, prm: PRM
+) -> tuple[list[Beam], int]:
     sampling_params = SamplingParams(
         temperature=config.temperature,
         max_tokens=config.max_tokens,
@@ -123,7 +125,7 @@ def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> tuple[
             beam.current_text += beam.next_texts[0]
             beam.history.append(beam.next_texts[0])
             total_tokens += sum(gen_result.completion_tokens)
-            
+
             if len(tokenizer.encode(" ".join(beam.history))) > 2048:
                 beam.completed = True
                 beam.stop_reasons = ["length"]
@@ -214,15 +216,19 @@ def beam_search(examples, config: Config, llm: LLM, prm: PRM):
     for results in beam_results:
         grouped_results[results.prompt].append(results)
 
-    results = {"completions": [], "pred": []}
+    results = {"completions": [], "pred": [], "scores": []}
     tokenizer = llm.get_tokenizer()
 
     for p in problems:
         beams = grouped_results[p]
         completions = [b.current_text for b in beams]
-        pred = completions[np.argmax([
-            aggregate_scores(b.all_scores, config.agg_strategy) for b in beams
-        ])]
+        scores = [b.all_scores for b in beams]
+        pred = completions[
+            np.argmax(
+                [aggregate_scores(b.all_scores, config.agg_strategy) for b in beams]
+            )
+        ]
         results["completions"].append(completions)
         results["pred"].append(pred)
+        results["scores"].append(scores)
     return results

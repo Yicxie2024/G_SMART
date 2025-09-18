@@ -1,5 +1,5 @@
 # refer to src/sal/config.py for more options
-model_path: Qwen/Qwen2.5-7B-Instruct
+model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-7B-Instruct
 custom_chat_template: null
 approach: best_of_n
 search_batch_size: 25

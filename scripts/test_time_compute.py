@@ -16,6 +16,7 @@
 import logging
 import random
 import numpy as np
+import os
 
 import torch
 from vllm import LLM
@@ -27,31 +28,32 @@ from sal.models.reward_models import load_prm
 from sal.utils.data import get_dataset, save_dataset
 from sal.utils.parser import H4ArgumentParser
 from sal.utils.score import score
-from sal.search import \
-    best_of_n, \
-    best_of_n_conf, \
-    smart_best_of_n, \
-    beam_search, \
-    beam_search_conf, \
-    smart_beam_search, \
-    smart_beam_search_conf, \
-    dvts
+from sal.search import (
+    best_of_n,
+    best_of_n_conf,
+    best_of_n_smart,
+    beam_search,
+    beam_search_conf,
+    beam_search_smart,
+    beam_search_smart_conf,
+)
 from datasets import Dataset
+
 logging.basicConfig(level=logging.INFO)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 APPROACHES = {
-    "beam_search":beam_search,
-    "beam_search_smart": smart_beam_search,
+    "beam_search": beam_search,
+    "beam_search_smart": beam_search_smart,
     "beam_search_conf": beam_search_conf,
-    "beam_search_smart_conf": smart_beam_search_conf,
-    "dvts": dvts,
+    "beam_search_smart_conf": beam_search_smart_conf,
     "best_of_n": best_of_n,
-    "best_of_n_smart": smart_best_of_n,
+    "best_of_n_smart": best_of_n_smart,
     "best_of_n_conf": best_of_n_conf,
 }
+
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -61,38 +63,56 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False  # Disable optimizations for reproducibility
 
-set_seed(42) 
+
+set_seed(42)
+
 
 def main():
+    # Set environment variables to avoid permission issues
+    os.environ.setdefault('VLLM_USAGE_STATS_DISABLED', '1')
+    os.environ.setdefault('TORCH_COMPILE_CACHE_DIR', '/mnt/beegfs/work/xie12/torch_compile_cache')
+    os.environ.setdefault('TORCHINDUCTOR_CACHE_DIR', '/mnt/beegfs/work/xie12/torch_inductor_cache')
+    os.environ.setdefault('TORCH_LOGS_DIR', '/mnt/beegfs/work/xie12/torch_logs')
+    
+    # Ensure cache directories exist
+    for cache_dir in [
+        '/mnt/beegfs/work/xie12/torch_compile_cache',
+        '/mnt/beegfs/work/xie12/torch_inductor_cache', 
+        '/mnt/beegfs/work/xie12/torch_logs'
+    ]:
+        os.makedirs(cache_dir, exist_ok=True)
+    
     parser = H4ArgumentParser(Config)
     config = parser.parse()
 
     num_gpus = torch.cuda.device_count()
-    print("="*20)
+    print("=" * 20)
     print("The number of available GPUs:", num_gpus)
-    
+
     # configure approach name
     approach_suffix = "_smart" if config.smart_search else ""
-    approach_suffix += "_conf" if config.score_method == 'conf' else ""
+    approach_suffix += "_conf" if config.score_method == "conf" else ""
     approach_name = config.approach + approach_suffix
-    
+
     if approach_name not in APPROACHES:
         raise ValueError(f"Invalid score method: {config.score_method}")
     approach_fn = APPROACHES[approach_name]
-    
+
     # log the search method and score method
-    print("\nUsing " + \
-        ("SMART" if config.smart_search else "Baseline") + \
-        " search.\nUsing " + \
-        ("Confidence" if config.score_method == 'conf' else "PRM") + \
-        " based score.\n")
+    print(
+        "\nUsing "
+        + ("SMART" if config.smart_search else "Baseline")
+        + " search.\nUsing "
+        + ("Confidence" if config.score_method == "conf" else "PRM")
+        + " based score.\n"
+    )
     if config.smart_search:
         print("Threshold:", config.threshold)
     print("N:", config.n)
     print("Beam width:", config.beam_width)
-    print("="*20)
-    
-    if config.smart_search:                
+    print("=" * 20)
+
+    if config.smart_search:
         mp.set_start_method("spawn", force=True)
         slm = LLM(
             model=config.draft_model_path,
@@ -102,14 +122,14 @@ def main():
             tensor_parallel_size=num_gpus,
             max_model_len=2048,
         )
-        
+
         llm = AutoModelForCausalLM.from_pretrained(
             config.model_path,
             device_map="auto",
             torch_dtype=torch.bfloat16,
         ).eval()
-        
-        if config.score_method == 'prm':
+
+        if config.score_method == "prm":
             prm = load_prm(config)
 
             dataset = get_dataset(config)
@@ -120,10 +140,10 @@ def main():
                 fn_kwargs={"config": config, "slm": slm, "prm": prm, "llm": llm},
                 desc="Running search",
                 load_from_cache_file=False,
-            )    
-        elif config.score_method == 'conf':
+            )
+        elif config.score_method == "conf":
             prm = load_prm(config)
-            
+
             dataset = get_dataset(config)
             dataset = dataset.map(
                 approach_fn,
@@ -145,8 +165,8 @@ def main():
             tensor_parallel_size=num_gpus,
             max_model_len=2048,
         )
-        
-        if config.score_method == 'prm':
+
+        if config.score_method == "prm":
             prm = load_prm(config)
 
             dataset = get_dataset(config)
@@ -158,10 +178,10 @@ def main():
                 desc="Running search",
                 load_from_cache_file=False,
             )
-        
-        elif config.score_method == 'conf':
+
+        elif config.score_method == "conf":
             prm = load_prm(config)
-            
+
             dataset = get_dataset(config)
             dataset = dataset.map(
                 approach_fn,
@@ -170,16 +190,18 @@ def main():
                 fn_kwargs={"config": config, "llm": llm, "prm": prm},
                 desc="Running search",
                 load_from_cache_file=False,
-            )    
-        else: 
+            )
+        else:
             raise ValueError(f"Invalid score method: {config.score_method}")
 
     dataset = score(dataset, config)
     save_dataset(dataset, config)
-    
+
     import sys
+
     sys.path.append("src/evaluation")
     from evaluation.evaluate import evaluate
+
     if config.approach == "best_of_n" or config.approach == "beam_search":
         subsets = [2**i for i in range(config.n) if 2**i <= config.n]
         keys = []
@@ -187,12 +209,19 @@ def main():
             keys.extend([f"pred_weighted@{n}", f"pred_maj@{n}", f"pred_naive@{n}"])
     else:
         keys = ["pred"]
-        
-    dataset, result = evaluate(data_name="math", prompt_type=None, samples=dataset, pred_keys=keys)
-    dataset = Dataset.from_list([{k: v for k, v in dict(sample).items() if k != 'pred_completions'} for sample in dataset])
-    
+
+    dataset, result = evaluate(
+        data_name="math", prompt_type=None, samples=dataset, pred_keys=keys
+    )
+    dataset = Dataset.from_list(
+        [
+            {k: v for k, v in dict(sample).items() if k != "pred_completions"}
+            for sample in dataset
+        ]
+    )
+
     save_dataset(dataset, config)
-    
+
     logger.info(result)
     logger.info("Done 🔥!")
 

@@ -1,6 +1,6 @@
 # refer to src/sal/config.py for more options
-model_path: meta-llama/Llama-3.1-8B-Instruct
-draft_model_path: llama1b-finetune #meta-llama/Llama-3.2-1B-Instruct
+model_path: /storage/ukp/shared/shared_model_weights/models--meta-llama--Meta-Llama-3-8B-Instruct
+draft_model_path: /storage/ukp/shared/shared_model_weights/models--meta-llama--Llama-3.2-1B-Instruct
 filter_duplicates: true
 approach: beam_search
 search_batch_size: 1  # DO NOT CHANGE!

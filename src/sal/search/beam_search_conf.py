@@ -29,7 +29,9 @@ logger = logging.getLogger()
 from sal.utils.score import aggregate_scores, calculate_confidence_score
 
 
-def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> tuple[list[Beam], int, list]:
+def _beam_search(
+    batch_of_prompts, config: Config, llm: LLM, prm: PRM
+) -> tuple[list[Beam], int, list]:
     sampling_params = SamplingParams(
         temperature=config.temperature,
         max_tokens=config.max_tokens,
@@ -37,7 +39,7 @@ def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> tuple[
         stop=["\n\n"],
         include_stop_str_in_output=True,
         n=1,
-        logprobs=True, 
+        logprobs=True,
     )
 
     beams: list[Beam] = []
@@ -125,8 +127,7 @@ def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> tuple[
             beam.current_text += beam.next_texts[0]
             beam.history.append(beam.next_texts[0])
             total_tokens += sum(gen_result.completion_tokens)
-            
-            
+
             if len(tokenizer.encode(" ".join(beam.history))) > 2048:
                 beam.completed = True
                 beam.stop_reasons = ["length"]
@@ -146,19 +147,16 @@ def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> tuple[
         #     [aggregate_scores(s, config.agg_strategy) for s in score]
         #     for score in scores
         # ]
-        
+
         conf_scores = []
         for output in [o for r in responses for o in r.outputs]:
             conf_scores.append([calculate_confidence_score(output.logprobs)])
         # order of likelihood_score, likelihood_mean_score, probs_mean_score
-            
-        conf_agg_scores = [
-            [score[0][-1]] # probs_mean_score
-            for score in conf_scores
-        ]
-            
+
+        conf_agg_scores = [[score[0][-1]] for score in conf_scores]  # probs_mean_score
+
         for beam, score in zip(active_beams, conf_scores, strict=True):
-            beam.all_scores.append(score[0][-1]) # should append probs_mean_score
+            beam.all_scores.append(score[0][-1])  # should append probs_mean_score
 
         # Now filter active_beams and agg_scores for beams that are completed
         conf_agg_scores = [
@@ -213,7 +211,7 @@ def _beam_search(batch_of_prompts, config: Config, llm: LLM, prm: PRM) -> tuple[
             copy.deepcopy(b) for b in (completed_beams * repeats)[: config.n]
         ]
         completed_beams = extended_completed_beams
-        
+
     # recalculate prm scores for completed beams
     prompts = [b.prompt for b in completed_beams]
     completions = [[b.current_text] for b in completed_beams]
@@ -231,14 +229,18 @@ def beam_search_conf(examples, config: Config, llm: LLM, prm: PRM):
     for results in beam_results:
         grouped_results[results.prompt].append(results)
 
-    results = {"completions": [], "pred": []}
+    results = {"completions": [], "pred": [], "scores": []}
 
     for p in problems:
         beams = grouped_results[p]
         completions = [b.current_text for b in beams]
-        pred = completions[np.argmax([
-            aggregate_scores(b.all_scores, config.agg_strategy) for b in beams
-        ])]
+        scores = [b.all_scores for b in beams]
+        pred = completions[
+            np.argmax(
+                [aggregate_scores(b.all_scores, config.agg_strategy) for b in beams]
+            )
+        ]
         results["completions"].append(completions)
         results["pred"].append(pred)
+        results["scores"].append(scores)
     return results

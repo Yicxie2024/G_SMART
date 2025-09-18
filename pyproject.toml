@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "search-and-learn"
+version = "0.1.0"
+description = "A tool for search-based methods on LLMs"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Apache-2.0"}
+authors = [{name = "The Hugging Face team (past and future)", email = "lewis@huggingface.co"}]
+keywords = ["nlp", "deep learning", "mcts"]
+dependencies = [
+    "accelerate",
+    "pebble",
+    "latex2sympy2==1.9.1",
+    "word2number",
+    "transformers>=4.47.0",
+    "fastapi",
+    "hf_transfer",
+    "timeout-decorator",
+]
+
+[project.urls]
+Homepage = "https://github.com/huggingface/search-and-learn"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.optional-dependencies]
+dev = [
+    "vllm==0.6.3",
+    "ruff",
+    "isort",
+    "pytest",
+]
+quality = [
+    "ruff",
+    "isort",
+]
+tests = [
+    "pytest",
+]

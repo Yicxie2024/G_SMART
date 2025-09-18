@@ -78,7 +78,7 @@ def save_dataset(dataset, config):
         logger.info(f"Pushed dataset to {url}")
     else:
         if config.output_dir is None:
-            config.output_dir = f"data/{config.model_path}"
+            config.output_dir = f"/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/{config.score_method}"
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
         
         # Name the folder based on the approach used
