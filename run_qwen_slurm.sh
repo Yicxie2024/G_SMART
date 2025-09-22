@@ -5,7 +5,7 @@
 #SBATCH --qos=gpu-small
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=256G
+#SBATCH --mem=192G
 #SBATCH --time=72:00:00
 #SBATCH --output=/storage/ukp/work/xie12/uncertainty-guided-reasoning/logs/slurm-%x-%j.out
 #SBATCH --error=/storage/ukp/work/xie12/uncertainty-guided-reasoning/logs/slurm-%x-%j.err
@@ -88,7 +88,8 @@ case "$OPTION" in
   3) CONFIG=recipes/Qwen2.5-1.5B-Instruct/best_of_n.yaml;       EXTRA=(--n=16 --beam_width=1 --score_method=prm) ;;
   4) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=1 --score_method=prm) ;;
   5) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=prm) ;;
-  *) echo "Unknown OPTION=$OPTION. Valid options are 0-5." >&2; exit 1 ;;
+  6) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=conf) ;;
+  *) echo "Unknown OPTION=$OPTION. Valid options are 0-6." >&2; exit 1 ;;
 esac
 
 echo "=== Using LOCAL cache at: $LOCAL ==="

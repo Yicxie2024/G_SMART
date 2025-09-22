@@ -120,7 +120,7 @@ def main():
             enable_prefix_caching=True,
             seed=config.seed,
             tensor_parallel_size=num_gpus,
-            max_model_len=2048,
+            max_model_len=8192,
         )
 
         llm = AutoModelForCausalLM.from_pretrained(
@@ -163,7 +163,7 @@ def main():
             enable_prefix_caching=True,
             seed=config.seed,
             tensor_parallel_size=num_gpus,
-            max_model_len=2048,
+            max_model_len=8192,
         )
 
         if config.score_method == "prm":
@@ -208,7 +208,7 @@ def main():
         for n in subsets:
             keys.extend([f"pred_weighted@{n}", f"pred_maj@{n}", f"pred_naive@{n}"])
     else:
-        keys = ["pred"]
+        keys = ["pred", "pred_random_uniform"]
 
     dataset, result = evaluate(
         data_name="math", prompt_type=None, samples=dataset, pred_keys=keys

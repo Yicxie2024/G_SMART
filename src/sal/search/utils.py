@@ -67,7 +67,7 @@ class Beam:
     all_scores: list[list[float]]  # all PRM scores
     previous_text: str | None
     pruned: False
-    history: list[str] = field(default_factory=list) 
+    history: list[str] = field(default_factory=list)
     completed: bool = False
     completion_tokens: list[int] = field(default_factory=list)
     smart_step: list[int] = field(default_factory=list)
@@ -78,6 +78,8 @@ class Beam:
     tokenprobs_mean_update: list[tuple[float, float]] = field(default_factory=list)
     gen_update: list[tuple[list[str], list[str]]] = field(default_factory=list)
     llm_tokens: list[int] = field(default_factory=list)
+    llm_corrections: int = 0
+
 
 @dataclass
 class GenResult:
@@ -148,7 +150,7 @@ def generate_k_steps(
         next_texts = []
         stop_reasons = []
         lookahead_texts = []
-        num_completion_tokens = [] 
+        num_completion_tokens = []
         for j in range(beam_width):
             gen_result = gen_results[counter]
             next_texts.append(gen_result.first_step_text)
@@ -197,8 +199,8 @@ def generate_k_steps_for_llm(
                 first_step_stop_reason=None,
             )
             gen_results.append(gen_result)
-            
-    stopping_criteria=StopStringCriteria(stop_strings="\n\n", tokenizer=tokenizer)
+
+    stopping_criteria = StopStringCriteria(stop_strings="\n\n", tokenizer=tokenizer)
     generation_config = GenerationConfig(
         do_sample=True,
         temperature=config.temperature,
@@ -220,8 +222,8 @@ def generate_k_steps_for_llm(
 
         decoded_outputs = []
         stop_reasons = []
-        num_completion_tokens = [] 
-        
+        num_completion_tokens = []
+
         for gen_prompt in gen_prompts:
             input_ids = tokenizer(gen_prompt, return_tensors="pt").to(llm.device)
             # Generate just the next step using large LLM
@@ -230,14 +232,14 @@ def generate_k_steps_for_llm(
                 **input_ids,
                 stopping_criteria=[stopping_criteria],
                 generation_config=generation_config,
-            )[:, input_ids["input_ids"].shape[1]:]
-            new_step = tokenizer.decode(new_ids[0]) #, skip_special_tokens=True)
-            
+            )[:, input_ids["input_ids"].shape[1] :]
+            new_step = tokenizer.decode(new_ids[0])  # , skip_special_tokens=True)
+
             assert len(new_step) > 0 and new_step != "\n\n" and new_step != ""
             # stop reason logic
             stop_reason = None
             if new_step.endswith("\n\n"):
-                stop_reason = '\n\n'
+                stop_reason = "\n\n"
             elif len(new_step) > config.max_tokens:
                 stop_reason = "length"
             else:
@@ -245,12 +247,13 @@ def generate_k_steps_for_llm(
             # elif tokenizer.eos_token_id == new_ids[0][-1] or new_step.endswith(tokenizer.eos_token):
             #     stop_reason = "EOS"
 
-
             decoded_outputs.append(new_step)
             stop_reasons.append(stop_reason)
             num_completion_tokens.append(len(new_ids[0]))
-        
-        for gen_result, output, completion_tokens, stop_reason in zip(current_gen, decoded_outputs, num_completion_tokens, stop_reasons):
+
+        for gen_result, output, completion_tokens, stop_reason in zip(
+            current_gen, decoded_outputs, num_completion_tokens, stop_reasons
+        ):
             if i == 0:
                 gen_result.first_step_text = output
                 gen_result.first_step_stop_reason = stop_reason
@@ -270,7 +273,7 @@ def generate_k_steps_for_llm(
         next_texts = []
         stop_reasons = []
         lookahead_texts = []
-        num_completion_tokens = [] 
+        num_completion_tokens = []
         for j in range(beam_width):
             gen_result = gen_results[counter]
             next_texts.append(gen_result.first_step_text)
@@ -285,7 +288,7 @@ def generate_k_steps_for_llm(
             current_text="",
             next_texts=next_texts,
             lookahead_texts=lookahead_texts,
-            completion_tokens= num_completion_tokens,
+            completion_tokens=num_completion_tokens,
             stop_reasons=stop_reasons,
             best_scores=[0.0],
             all_scores=[],
@@ -356,7 +359,7 @@ def generate_k_steps_with_responses(
         next_texts = []
         stop_reasons = []
         lookahead_texts = []
-        num_completion_tokens = [] 
+        num_completion_tokens = []
         for j in range(beam_width):
             gen_result = gen_results[counter]
             next_texts.append(gen_result.first_step_text)
@@ -371,7 +374,7 @@ def generate_k_steps_with_responses(
             current_text="",
             next_texts=next_texts,
             lookahead_texts=lookahead_texts,
-            completion_tokens= num_completion_tokens,
+            completion_tokens=num_completion_tokens,
             stop_reasons=stop_reasons,
             best_scores=[0.0],
             all_scores=[],
@@ -405,8 +408,8 @@ def generate_k_steps_for_llm_with_responses(
                 first_step_stop_reason=None,
             )
             gen_results.append(gen_result)
-            
-    stopping_criteria=StopStringCriteria(stop_strings="\n\n", tokenizer=tokenizer)
+
+    stopping_criteria = StopStringCriteria(stop_strings="\n\n", tokenizer=tokenizer)
     generation_config = GenerationConfig(
         do_sample=True,
         temperature=config.temperature,
@@ -428,9 +431,9 @@ def generate_k_steps_for_llm_with_responses(
 
         decoded_outputs = []
         stop_reasons = []
-        num_completion_tokens = [] 
+        num_completion_tokens = []
         responses_token_log_probs = []
-        
+
         for gen_prompt in gen_prompts:
             input_ids = tokenizer(gen_prompt, return_tensors="pt").to(llm.device)
             # Generate just the next step using large LLM
@@ -440,26 +443,27 @@ def generate_k_steps_for_llm_with_responses(
                 stopping_criteria=[stopping_criteria],
                 generation_config=generation_config,
                 output_scores=True,
-                return_dict_in_generate=True
+                return_dict_in_generate=True,
             )
 
-            new_ids = response.sequences[:, input_ids["input_ids"].shape[-1]:]  #
-            new_step = tokenizer.decode(new_ids[0]) #, skip_special_tokens=True)
+            new_ids = response.sequences[:, input_ids["input_ids"].shape[-1] :]  #
+            new_step = tokenizer.decode(new_ids[0])  # , skip_special_tokens=True)
 
             scores = response.scores
-            log_probs = [F.log_softmax(score, dim=-1) for score in scores] 
+            log_probs = [F.log_softmax(score, dim=-1) for score in scores]
             token_log_probs = [
-                log_prob[0, tok].item()  # 배치 차원 제거 후 특정 토큰의 log probability 가져오기
+                log_prob[
+                    0, tok
+                ].item()  # 배치 차원 제거 후 특정 토큰의 log probability 가져오기
                 for log_prob, tok in zip(log_probs, new_ids[0])  # zip으로 길이 맞춤
             ]
             responses_token_log_probs.append(token_log_probs)
 
-            
             assert len(new_step) > 0 and new_step != "\n\n" and new_step != ""
             # stop reason logic
             stop_reason = None
             if new_step.endswith("\n\n"):
-                stop_reason = '\n\n'
+                stop_reason = "\n\n"
             elif len(new_step) > config.max_tokens:
                 stop_reason = "length"
             else:
@@ -467,12 +471,13 @@ def generate_k_steps_for_llm_with_responses(
             # elif tokenizer.eos_token_id == new_ids[0][-1] or new_step.endswith(tokenizer.eos_token):
             #     stop_reason = "EOS"
 
-
             decoded_outputs.append(new_step)
             stop_reasons.append(stop_reason)
             num_completion_tokens.append(len(new_ids[0]))
-        
-        for gen_result, output, completion_tokens, stop_reason in zip(current_gen, decoded_outputs, num_completion_tokens, stop_reasons):
+
+        for gen_result, output, completion_tokens, stop_reason in zip(
+            current_gen, decoded_outputs, num_completion_tokens, stop_reasons
+        ):
             if i == 0:
                 gen_result.first_step_text = output
                 gen_result.first_step_stop_reason = stop_reason
@@ -492,7 +497,7 @@ def generate_k_steps_for_llm_with_responses(
         next_texts = []
         stop_reasons = []
         lookahead_texts = []
-        num_completion_tokens = [] 
+        num_completion_tokens = []
         for j in range(beam_width):
             gen_result = gen_results[counter]
             next_texts.append(gen_result.first_step_text)
@@ -507,7 +512,7 @@ def generate_k_steps_for_llm_with_responses(
             current_text="",
             next_texts=next_texts,
             lookahead_texts=lookahead_texts,
-            completion_tokens= num_completion_tokens,
+            completion_tokens=num_completion_tokens,
             stop_reasons=stop_reasons,
             best_scores=[0.0],
             all_scores=[],
