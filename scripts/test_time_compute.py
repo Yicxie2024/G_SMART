@@ -36,6 +36,7 @@ from sal.search import (
     beam_search_conf,
     beam_search_smart,
     beam_search_smart_conf,
+    beam_search_smart_cocoa,
 )
 from datasets import Dataset
 
@@ -49,6 +50,7 @@ APPROACHES = {
     "beam_search_smart": beam_search_smart,
     "beam_search_conf": beam_search_conf,
     "beam_search_smart_conf": beam_search_smart_conf,
+    "beam_search_smart_cocoa": beam_search_smart_cocoa,
     "best_of_n": best_of_n,
     "best_of_n_smart": best_of_n_smart,
     "best_of_n_conf": best_of_n_conf,
@@ -91,7 +93,10 @@ def main():
 
     # configure approach name
     approach_suffix = "_smart" if config.smart_search else ""
-    approach_suffix += "_conf" if config.score_method == "conf" else ""
+    if config.score_method == "conf":
+        approach_suffix += "_conf"
+    elif config.score_method.startswith("cocoa"):
+        approach_suffix += "_cocoa"
     approach_name = config.approach + approach_suffix
 
     if approach_name not in APPROACHES:
@@ -103,7 +108,7 @@ def main():
         "\nUsing "
         + ("SMART" if config.smart_search else "Baseline")
         + " search.\nUsing "
-        + ("Confidence" if config.score_method == "conf" else "PRM")
+        + ("Confidence" if config.score_method == "conf" else "Cocoa" if config.score_method == "cocoa" else "PRM")
         + " based score.\n"
     )
     if config.smart_search:
@@ -120,7 +125,7 @@ def main():
             enable_prefix_caching=True,
             seed=config.seed,
             tensor_parallel_size=num_gpus,
-            max_model_len=2048,
+            max_model_len=8192,
         )
 
         llm = AutoModelForCausalLM.from_pretrained(
@@ -153,6 +158,18 @@ def main():
                 desc="Running search",
                 load_from_cache_file=False,
             )
+        elif config.score_method.startswith("cocoa"):
+            prm = load_prm(config)
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "slm": slm, "prm": prm, "llm": llm},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
         else:
             raise ValueError(f"Invalid score method: {config.score_method}")
     else:
@@ -163,7 +180,7 @@ def main():
             enable_prefix_caching=True,
             seed=config.seed,
             tensor_parallel_size=num_gpus,
-            max_model_len=2048,
+            max_model_len=8192,
         )
 
         if config.score_method == "prm":
@@ -180,6 +197,18 @@ def main():
             )
 
         elif config.score_method == "conf":
+            prm = load_prm(config)
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "llm": llm, "prm": prm},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
+        elif config.score_method.startswith("cocoa"):
             prm = load_prm(config)
 
             dataset = get_dataset(config)
@@ -208,7 +237,7 @@ def main():
         for n in subsets:
             keys.extend([f"pred_weighted@{n}", f"pred_maj@{n}", f"pred_naive@{n}"])
     else:
-        keys = ["pred"]
+        keys = ["pred", "pred_random_uniform"]
 
     dataset, result = evaluate(
         data_name="math", prompt_type=None, samples=dataset, pred_keys=keys

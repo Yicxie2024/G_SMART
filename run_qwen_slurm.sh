@@ -5,7 +5,7 @@
 #SBATCH --qos=gpu-small
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=256G
+#SBATCH --mem=192G
 #SBATCH --time=72:00:00
 #SBATCH --output=/storage/ukp/work/xie12/uncertainty-guided-reasoning/logs/slurm-%x-%j.out
 #SBATCH --error=/storage/ukp/work/xie12/uncertainty-guided-reasoning/logs/slurm-%x-%j.err
@@ -88,7 +88,11 @@ case "$OPTION" in
   3) CONFIG=recipes/Qwen2.5-1.5B-Instruct/best_of_n.yaml;       EXTRA=(--n=16 --beam_width=1 --score_method=prm) ;;
   4) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=1 --score_method=prm) ;;
   5) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=prm) ;;
-  *) echo "Unknown OPTION=$OPTION. Valid options are 0-5." >&2; exit 1 ;;
+  6) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=conf) ;;
+  7) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=4 --uq_sampling_temperature=1.2 --score_method=cocoa_msp --uq_threshold=0.1) ;;
+  8) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=4 --uq_sampling_temperature=1.2 --score_method=cocoa_ppl --uq_threshold=0.01) ;;
+  9) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=4 --uq_sampling_temperature=1.2 --score_method=cocoa_entropy --uq_threshold=0.01) ;;
+  *) echo "Unknown OPTION=$OPTION. Valid options are 0-9." >&2; exit 1 ;;
 esac
 
 echo "=== Using LOCAL cache at: $LOCAL ==="

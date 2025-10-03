@@ -78,6 +78,8 @@ class Beam:
     tokenprobs_mean_update: list[tuple[float, float]] = field(default_factory=list)
     gen_update: list[tuple[list[str], list[str]]] = field(default_factory=list)
     llm_tokens: list[int] = field(default_factory=list)
+    llm_corrections: int = 0
+
 
 @dataclass
 class GenResult:
@@ -304,6 +306,7 @@ def generate_k_steps_with_responses(
     llm: LLM,
     sampling_params: SamplingParams,
     beam_width: int,
+    uq_sampling_temperature: float | None = None,
 ) -> list[Beam]:
     gen_results = []
     for i, text in enumerate(templated_convs):
@@ -313,41 +316,80 @@ def generate_k_steps_with_responses(
                 initial_prompt=text,
                 first_step_text="",
                 lookahead_text="",
-                completion_tokens=[],
+                completion_tokens=0,
                 stop_reason=None,
                 first_step_stop_reason=None,
             )
             gen_results.append(gen_result)
 
-    gen_sampling_params = copy.deepcopy(sampling_params)
-
     for i in range(lookahead_steps + 1):
-        if i == 1:
-            gen_sampling_params.temperature = 0.0  # greedy for the rest of the steps
-        # get all generations that did not finish with eos
         current_gen = [
-            gen_results[i]
-            for i in range(len(gen_results))
-            if gen_results[i].stop_reason != "EOS"
+            gr for gr in gen_results
+            if gr.stop_reason != "EOS"
         ]
         gen_prompts = [
-            gen_result.initial_prompt + gen_result.lookahead_text
-            for gen_result in current_gen
+            gr.initial_prompt + gr.lookahead_text
+            for gr in current_gen
         ]
-        llm_outputs = llm.generate(gen_prompts, gen_sampling_params, use_tqdm=False)
-        for gen_result, output in zip(current_gen, llm_outputs):
+
+        if i == 0:
+            # --- 关键：按每个样本的 beam 位置拆分 ---
+            greedy_prompts, greedy_pos = [], []
+            sample_prompts, sample_pos = [], []
+
+            for pos, gr in enumerate(current_gen):
+                # 计算它在各自样本组内的 beam 序号：
+                # gen_results 的构造是按每个样本依次追加 beam，
+                # 因此可以用 (pos % beam_width) 来判定“第几个 beam”
+                if (pos % beam_width) == 0:
+                    greedy_prompts.append(gen_prompts[pos])
+                    greedy_pos.append(pos)
+                else:
+                    sample_prompts.append(gen_prompts[pos])
+                    sample_pos.append(pos)
+
+            # 1) 生成 greedy beams（每组第一个）
+            greedy_outs = []
+            if len(greedy_prompts) > 0:
+                greedy_params = copy.deepcopy(sampling_params)
+                greedy_outs = llm.generate(greedy_prompts, greedy_params, use_tqdm=False)
+
+            # 2) 生成 sampling beams（每组其余）
+            sample_outs = []
+            if len(sample_prompts) > 0:
+                sample_params = copy.deepcopy(sampling_params)
+                # you want the sampling settings (example):
+                sample_params.temperature = uq_sampling_temperature if not i == 0 else getattr(sampling_params, "temperature", 0.8)
+                print("[DEBUG] sample_params.temperature:", sample_params.temperature)
+                sample_params.top_p = getattr(sampling_params, "top_p", 0.9)
+                sample_params.top_k = getattr(sampling_params, "top_k", 50)
+                sample_params.seed = getattr(sampling_params, "seed", 42)
+                sample_outs = llm.generate(sample_prompts, sample_params, use_tqdm=False)
+
+            # 3) 合并回到 "与 current_gen 对齐" 的顺序数组 llm_outputs
+            llm_outputs = [None] * len(current_gen)
+            for out, pos in zip(greedy_outs, greedy_pos):
+                llm_outputs[pos] = out
+            for out, pos in zip(sample_outs, sample_pos):
+                llm_outputs[pos] = out
+
+        else:
+            # 后续步（如果你以后要 lookahead>0）：全部 greedy 续写
+            greedy_all = copy.deepcopy(sampling_params)
+            greedy_all.temperature = 0.0
+            greedy_all.top_p = 1.0
+            greedy_all.top_k = -1
+            llm_outputs = llm.generate(gen_prompts, greedy_all, use_tqdm=False)
+
+        # === 保持你原来的赋值逻辑 ===
+        for gr, output in zip(current_gen, llm_outputs):
             gen_text = output.outputs[0].text
             if i == 0:
-                gen_result.first_step_text = gen_text
-                gen_result.first_step_stop_reason = output.outputs[0].stop_reason
-                if gen_result.first_step_stop_reason is None:
-                    gen_result.first_step_stop_reason = "EOS"
-
-            gen_result.lookahead_text = gen_result.lookahead_text + gen_text
-            gen_result.completion_tokens = len(output.outputs[0].token_ids)
-            gen_result.stop_reason = output.outputs[0].stop_reason
-            if gen_result.stop_reason is None:
-                gen_result.stop_reason = "EOS"
+                gr.first_step_text = gen_text
+                gr.first_step_stop_reason = output.outputs[0].stop_reason or "EOS"
+            gr.lookahead_text += gen_text
+            gr.completion_tokens = len(output.outputs[0].token_ids)
+            gr.stop_reason = output.outputs[0].stop_reason or "EOS"
 
     outputs: list[Beam] = []
 

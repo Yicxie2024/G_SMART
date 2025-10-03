@@ -46,8 +46,18 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
     if max_num_samples:
         print(f"max_num_samples: {max_num_samples} / {len(samples)}")
         samples = samples[:max_num_samples]
-    
-    # parse gt
+
+    # automatically extend pred_keys: if there are pred_random_uniform, also evaluate it
+    if pred_keys is None:
+        candidate_keys = ['pred']
+        if 'pred_random_uniform' in samples[0]:
+            candidate_keys.append('pred_random_uniform')
+        pred_keys = candidate_keys
+    else:
+        if 'pred_random_uniform' in samples[0] and 'pred_random_uniform' not in pred_keys:
+            pred_keys = list(pred_keys) + ['pred_random_uniform']
+
+    # parse GT and extract final prediction
     for sample in samples:
         _, sample['gt'] = parse_ground_truth(sample, data_name)
         sample['metrics'] = pred_keys
@@ -77,14 +87,18 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
     
     # calculate scores for each completions
     for sample in samples:
-        sample['pred_completions'] = [extract_answer(completion, data_name) for completion in sample['completions']]
-        
-    # calculate scores for final prediction
-    params = [(idx, pred, sample['gt']) for idx, sample in enumerate(samples) for pred in sample['pred_completions']]
+        sample['pred_completions'] = [
+            extract_answer(completion, data_name) for completion in sample.get('completions', [])
+        ]
+    params = [
+        (idx, pred, sample['gt'])
+        for idx, sample in enumerate(samples)
+        for pred in sample['pred_completions']
+    ]
     completion_scores = []
-    timeout_cnt = 0 
+    timeout_cnt = 0
 
-    progress_bar = tqdm(total=len(samples), desc="Extract correctness for each completion")
+    progress_bar = tqdm(total=len(params), desc="Evaluate per-completion (baseline)")
     for idx, pred, gt in params:
         try:
             result = math_equal_process((idx, pred, gt))
@@ -98,22 +112,63 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
             exit()
         progress_bar.update(1)
     progress_bar.close()
-    
-        
 
+    # if there are random completions_random, also evaluate the correctness of each completion
+    have_random_completions = 'completions_random' in samples[0]
+    if have_random_completions:
+        for sample in samples:
+            sample['pred_completions_random'] = [
+                extract_answer(c, data_name) for c in sample.get('completions_random', [])
+            ]
+        params_rand = [
+            (idx, pred, sample['gt'])
+            for idx, sample in enumerate(samples)
+            for pred in sample['pred_completions_random']
+        ]
+        completion_scores_random = []
+        progress_bar = tqdm(total=len(params_rand), desc="Evaluate per-completion (random)")
+        for idx, pred, gt in params_rand:
+            try:
+                result = math_equal_process((idx, pred, gt))
+                completion_scores_random.append(result)
+            except TimeoutError as error:
+                print(error)
+                completion_scores_random.append(False)
+                timeout_cnt += 1
+            except Exception as error:
+                print(error)
+                exit()
+            progress_bar.update(1)
+        progress_bar.close()
+    else:
+        completion_scores_random = None
+
+    # fill back to samples
+    # pred_keys matrix
     idx = 0
     score_mat = []
     for sample in samples:
-        sample['correct'] = scores[idx: idx+len(sample['preds'])]
+        sample['correct'] = scores[idx: idx + len(sample['preds'])]
         assert len(sample['correct']) == len(sample['preds'])
         score_mat.append(sample['correct'])
         idx += len(sample['preds'])
 
+    # the correctness of the main completions
     idx = 0
     for sample in samples:
-        sample['correct_completions'] = completion_scores[idx: idx+len(sample['pred_completions'])]
-        assert len(sample['correct_completions']) == len(sample['pred_completions'])
-        idx += len(sample['pred_completions'])
+        n = len(sample['pred_completions'])
+        sample['correct_completions'] = completion_scores[idx: idx + n]
+        assert len(sample['correct_completions']) == n
+        idx += n
+
+    # the correctness of the random completions
+    if completion_scores_random is not None:
+        idx = 0
+        for sample in samples:
+            n = len(sample.get('pred_completions_random', []))
+            sample['correct_completions_random'] = completion_scores_random[idx: idx + n]
+            assert len(sample['correct_completions_random']) == n
+            idx += n
 
     max_len = max([len(s) for s in score_mat])
 

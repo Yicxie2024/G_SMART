@@ -15,7 +15,7 @@
 
 from dataclasses import dataclass
 from typing import Literal
-
+from typing import Union
 from huggingface_hub import get_full_repo_name
 
 from sal.utils.hub import get_dataset_revisions
@@ -35,6 +35,7 @@ class Config:
         0.4  # vllm is allocated 0.5 of GPU memory, the PRM uses the rest
     )
     threshold: float = 0.9
+    uq_threshold: float = 0.15
     prm_path: str = "RLHFlow/Llama3.1-8B-PRM-Deepseek-Data"
     # Output Related Options
     output_dir: str = None
@@ -50,8 +51,8 @@ class Config:
     dataset_name: str = "HuggingFaceH4/MATH-500"
     dataset_config: str = None
     dataset_split: str = "test"
-    dataset_start: int = 0
-    dataset_end: int = 1
+    dataset_start: int = None
+    dataset_end: int = None
     num_samples: int = None
 
     # Chat template related options
@@ -64,7 +65,9 @@ class Config:
     # Search Related Options
     n: int = None
     temperature: float = 0.8
+    uq_sampling_temperature: float = 1.0
     top_p: float = 1.0
+    top_k: Union[int, None] = None
     prm_batch_size: int = 4
     search_batch_size: int = 25
     seed: int = 42
@@ -74,7 +77,7 @@ class Config:
     conf_strategy: str = "probs_mean"  # Options: "log_sum", "log_mean", "probs_mean"
 
     # DVTS / Beam Search options
-    beam_width: int = None  # m=4 in the paper
+    beam_width: int = 4  # m=4 in the paper
     num_iterations: int = 40
     lookahead: int = 0  # 1
 

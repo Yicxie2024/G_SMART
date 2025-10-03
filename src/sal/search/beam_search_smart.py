@@ -32,7 +32,7 @@ from transformers import AutoTokenizer
 
 
 def _beam_search(
-    batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None
+    batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None, random_quotas_by_prompt: list[list[int]] = None, random_seed: int = None, random_max_iters_by_prompt: list[list[int]] = None,
 ) -> tuple[list[Beam], int]:
     sampling_params = SamplingParams(
         temperature=config.temperature,
@@ -44,10 +44,9 @@ def _beam_search(
     )
 
     beams: list[Beam] = []
-    for prompt in batch_of_prompts:
+    for p_idx, prompt in enumerate(batch_of_prompts):
         for i in range(config.n):
-            beams.append(
-                Beam(
+            b = Beam(
                     prompt=prompt,
                     index=i,
                     current_text="",
@@ -66,8 +65,25 @@ def _beam_search(
                     gen_update=[],
                     llm_tokens=[],
                 )
-            )
+            setattr(b, 'prompt_idx', p_idx)
+            beams.append(b)
 
+    # If random quotas are provided, pre-sample a correction schedule per (prompt_idx, beam.index)
+    schedule_by_slot = {}
+    if random_quotas_by_prompt is not None:
+        _rng = np.random.default_rng(0 if random_seed is None else int(random_seed))
+        assert len(random_quotas_by_prompt) == len(batch_of_prompts)
+        for _p_idx, _quotas in enumerate(random_quotas_by_prompt):
+            assert len(_quotas) == config.n, 'quotas length must equal config.n'
+            for _i, _q in enumerate(_quotas):
+                _q = int(_q) if _q is not None else 0
+                max_iter = int(random_max_iters_by_prompt[_p_idx][_i]) if random_max_iters_by_prompt is not None else int(config.num_iterations)
+                _q = max(0, min(_q, max_iter))
+                if _q > 0 and max_iter > 0:
+                    _iters = _rng.choice(int(config.num_iterations), size=_q, replace=False)
+                    schedule_by_slot[(_p_idx, _i)] = set(int(x) for x in _iters.tolist())
+                else:
+                    schedule_by_slot[(_p_idx, _i)] = set()
     completed_beams: list[Beam] = []
     total_tokens = 0
     smart_done = False
@@ -79,6 +95,12 @@ def _beam_search(
             active_beams = [b for b in beams if not b.pruned]
         else:
             active_beams = [b for b in active_beams if not b.pruned]
+            
+        for b in active_beams:
+            # only record the iterations that the active beams have appeared
+            if not hasattr(b, "iter_slots"):
+                b.iter_slots = []
+            b.iter_slots.append(iterate_idx)
 
         # Duplicate active beams to ensure that we have config.n beams per iteration
         if len(active_beams) != config.n:
@@ -211,11 +233,18 @@ def _beam_search(
         # active_beams = [b for b in active_beams if not b.pruned]
         # agg_scores = [agg_scores[idx] for idx in top_indices]
 
-        re_indices = [
-            top_idx
-            for top_idx in top_indices
-            if agg_scores[top_idx][0] < config.threshold
-        ]
+        if random_quotas_by_prompt is None:
+            re_indices = [top_idx for top_idx in top_indices if agg_scores[top_idx][0] < config.threshold]
+        else:
+            re_indices = []
+            for top_idx in top_indices:
+                b = prev_active_beams[top_idx]
+                if getattr(b, 'completed', False):
+                    continue
+                key = (getattr(b, 'prompt_idx', 0), getattr(b, 'index', 0))
+                iters = schedule_by_slot.get(key)
+                if iters is not None and iterate_idx in iters:
+                    re_indices.append(top_idx)
         if len(re_indices) == 0:
             continue
 
@@ -318,26 +347,50 @@ def _beam_search(
 
 def smart_beam_search(examples, config: Config, slm: LLM, prm: PRM, llm: None):
     problems = examples["problem"]
-    beam_results, total_tokens = _beam_search(problems, config, slm, prm, llm)
-
-    # Group together alike beams and store in the dataset
-    grouped_results = defaultdict(list)
-    for results in beam_results:
-        grouped_results[results.prompt].append(results)
-
-    results = {"completions": [], "pred": [], "scores": []}
-    tokenizer = slm.get_tokenizer()
-
+    # Round 1: normal SMART to get beams with correction counts
+    beam_results_prm, _ = _beam_search(problems, config, slm, prm, llm)
+    grouped_prm = defaultdict(list)
+    for b in beam_results_prm:
+        grouped_prm[b.prompt].append(b)
+    quotas_by_prompt = []
+    max_iters_by_prompt = []
+    for p_idx, p in enumerate(problems):
+        beams_p = grouped_prm[p]
+        quotas_by_prompt.append([len(getattr(b, 'llm_tokens', [])) for b in beams_p])
+        max_iters_by_prompt.append([
+            (max(getattr(b, 'iter_slots', [])) + 1) if getattr(b, 'iter_slots', []) else 0
+        for b in beams_p
+        ])
+    # Round 2: random schedule with same quotas
+    rng_seed = getattr(config, 'seed', None)
+    beam_results_rand, _ = _beam_search(problems, config, slm, prm, llm,
+                                        random_quotas_by_prompt=quotas_by_prompt,
+                                        random_seed=rng_seed,
+                                        random_max_iters_by_prompt=max_iters_by_prompt
+                                        )
+    grouped_rand = defaultdict(list)
+    for b in beam_results_rand:
+        grouped_rand[b.prompt].append(b)
+    results = {'completions': [], 'pred': [], 'scores': [],
+               'completions_random': [], 'pred_random_uniform': [], 'correction_counts': [], 'correction_counts_random': []}
     for p in problems:
-        beams = grouped_results[p]
+        beams = grouped_prm[p]
         completions = [b.current_text for b in beams]
         scores = [b.all_scores for b in beams]
-        pred = completions[
-            np.argmax(
-                [aggregate_scores(b.all_scores, config.agg_strategy) for b in beams]
-            )
-        ]
-        results["completions"].append(completions)
-        results["pred"].append(pred)
-        results["scores"].append(scores)
+        pred = completions[np.argmax([aggregate_scores(b.all_scores, config.agg_strategy) for b in beams])]
+        results['completions'].append(completions)
+        results['pred'].append(pred)
+        results['scores'].append(scores)
+        results['correction_counts'].append([len(getattr(b,'llm_tokens', [])) for b in beams])
+        beams_r = grouped_rand[p]
+        completions_r = [b.current_text for b in beams_r]
+        results['completions_random'].append(completions_r)
+        if len(completions_r) > 0:
+            rng = np.random.default_rng(rng_seed)
+            pred_r = completions_r[int(rng.integers(0, len(completions_r)))]
+        else:
+            pred_r = ''
+        results['pred_random_uniform'].append(pred_r)
+        results['correction_counts_random'].append([len(getattr(b,'llm_tokens', [])) for b in beams_r])
     return results
+

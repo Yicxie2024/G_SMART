@@ -32,7 +32,7 @@ from .utils import (
 )
 
 logger = logging.getLogger()
-from sal.utils.score import aggregate_scores, calculate_confidence_score
+from sal.utils.score import aggregate_scores, calculate_cocoa_uq_scores
 
 from transformers import AutoTokenizer
 
@@ -131,7 +131,7 @@ def _beam_search(
         )
         lookahead = 0 if iterate_idx == config.num_iterations - 1 else config.lookahead
         gen_results, responses = generate_k_steps_with_responses(
-            templated_convs, lookahead, slm, sampling_params, 1
+            templated_convs, lookahead, slm, sampling_params, config.beam_width, config.uq_sampling_temperature
         )
 
         prev_active_beams = copy.deepcopy(active_beams)
@@ -139,14 +139,14 @@ def _beam_search(
         # copy the active beams to regenerate the beams with llm
         prompts, completions = [], []
         for beam, gen_result in zip(active_beams, gen_results, strict=True):
-            beam.next_texts = gen_result.next_texts
-            beam.stop_reasons = gen_result.stop_reasons
-            beam.lookahead_texts = gen_result.lookahead_texts
-            beam.completion_tokens += gen_result.completion_tokens
+            beam.next_texts = [gen_result.next_texts[0]]
+            beam.stop_reasons = [gen_result.stop_reasons[0]]
+            beam.lookahead_texts = [gen_result.lookahead_texts[0]]
+            beam.completion_tokens += [gen_result.completion_tokens[0]]
 
             beam.current_text += beam.next_texts[0]
             beam.history.append(beam.next_texts[0])
-            total_tokens += sum(gen_result.completion_tokens)
+            total_tokens += sum([gen_result.completion_tokens[0]])
 
             history_text = " ".join(beam.history)
             if len(tokenizer.encode(history_text)) > 2048:
@@ -168,16 +168,34 @@ def _beam_search(
         #     [aggregate_scores(s, config.agg_strategy) for s in score]
         #     for score in scores
         # ]
-
-        conf_scores = []
-        for output in [o for r in responses for o in r.outputs]:
-            conf_scores.append([calculate_confidence_score(output.logprobs)])
-        # order of likelihood_score, likelihood_mean_score, probs_mean_score
-
-        conf_agg_scores = [[score[0][-1]] for score in conf_scores]  # probs_mean_score
-
-        for beam, score in zip(active_beams, conf_scores, strict=True):
-            beam.all_scores.append(score[0][-1])  # should append probs_mean_score
+        
+        from sentence_transformers import SentenceTransformer
+        sbert = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+        def _detok(ids):  # 你的 tokenizer 解码函数
+            return tokenizer.decode(ids, skip_special_tokens=True)
+        def _embed_fn(texts):
+            vecs = sbert.encode(texts, convert_to_numpy=True, normalize_embeddings=False)
+            return vecs
+        
+        conf_agg_scores = []
+        for i in range(0, len([o for r in responses for o in r.outputs]), config.beam_width):
+            current_beam_outputs = [o for r in responses for o in r.outputs][i:i+config.beam_width]
+            # 提取每个输出对象的 logprobs 属性
+            beam_logprobs_list = [output.logprobs for output in current_beam_outputs]
+            cocoa_msp, cocoa_ppl, cocoa_entropy = calculate_cocoa_uq_scores(beam_logprobs_list, detok=_detok, embed_fn=_embed_fn)
+            if config.score_method == "cocoa_msp":
+                uq_score = cocoa_msp
+            elif config.score_method == "cocoa_ppl":
+                uq_score = cocoa_ppl
+            elif config.score_method == "cocoa_entropy":
+                uq_score = cocoa_entropy
+            else:
+                raise ValueError(f"Invalid score method: {config.score_method}")
+            print(f"DEBUG: iteration {iterate_idx}, beam {i},cocoa_msp: {cocoa_msp}, cocoa_ppl: {cocoa_ppl}, cocoa_entropy: {cocoa_entropy}")
+            conf_agg_scores.append([uq_score])
+        
+        for beam, score in zip(active_beams, conf_agg_scores, strict=True):
+            beam.all_scores.append(score[0])  # should append probs_mean_score
 
         # Now filter active_beams and agg_scores for beams that are completed
         conf_agg_scores = [
@@ -229,7 +247,7 @@ def _beam_search(
         re_indices = [
             top_idx
             for top_idx in top_indices
-            if conf_agg_scores[top_idx][0] < config.threshold
+            if conf_agg_scores[top_idx][0] > config.uq_threshold
         ]
         if len(re_indices) == 0:
             continue
@@ -328,7 +346,7 @@ def _beam_search(
     return completed_beams, total_tokens, prm_scores
 
 
-def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: None):
+def smart_beam_search_cocoa(examples, config: Config, slm: LLM, prm: PRM, llm: None):
     problems = examples["problem"]
     beam_results, total_tokens, prm_scores = _beam_search(
         problems, config, slm, prm, llm

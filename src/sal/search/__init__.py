@@ -35,7 +35,10 @@ try:
     from .beam_search_smart_conf import smart_beam_search_conf as beam_search_smart_conf
 except Exception:
     pass
-
+try:
+    from .beam_search_smart_cocoa import smart_beam_search_cocoa as beam_search_smart_cocoa
+except Exception:
+    pass
 # --- utils ---
 try:
     from .utils import *

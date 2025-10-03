@@ -260,7 +260,13 @@ def math_equal(
 
 
 def math_equal_process(param):
-    return math_equal(param[-2], param[-1])
+    try:
+        # param is a tuple (idx, pred, gt), we need pred and gt
+        idx, pred, gt = param
+        return math_equal(pred, gt, timeout=True)
+    except Exception as e:
+        print(f"Error in math_equal_process: {e}")
+        return False
 
 
 def numeric_equal(prediction: float, reference: float):

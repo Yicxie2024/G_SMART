@@ -87,6 +87,9 @@ def save_dataset(dataset, config):
                 folder_name = "smart_prm"
             elif config.score_method == 'conf':
                 folder_name = "smart_conf"
+            # if score_methode starts with cocoa, then folder_name is smart_cocoa
+            elif config.score_method.startswith('cocoa'):
+                folder_name = "smart_cocoa"
         else: 
             if config.score_method == 'prm':
                 folder_name = "base_prm"
@@ -102,15 +105,15 @@ def save_dataset(dataset, config):
         # Save the dataset to a jsonl file by splitting the dataset or not
         if config.dataset_start is not None and config.dataset_end is not None:
             dataset.to_json(
-                f"{config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_{config.num_samples}_datasplit_{config.dataset_start}-{config.dataset_end}.jsonl", lines=True
+                f"{config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_threshold_uq-{config.uq_threshold}_{config.num_samples}_datasplit_{config.dataset_start}-{config.dataset_end}_method-{config.score_method}.jsonl", lines=True
             )
             logger.info(
-                f"Saved completions to {config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_{config.num_samples}_datasplit_{config.dataset_start}-{config.dataset_end}.jsonl"
+                f"Saved completions to {config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_threshold_uq-{config.uq_threshold}_{config.num_samples}_datasplit_{config.dataset_start}-{config.dataset_end}_method-{config.score_method}.jsonl"
             )
         else:
             dataset.to_json(
-                    f"{config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_{config.num_samples}.jsonl", lines=True
+                    f"{config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_threshold_uq-{config.uq_threshold}_{config.num_samples}_method-{config.score_method}.jsonl", lines=True
                 )
             logger.info(
-                f"Saved completions to {config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_{config.num_samples}.jsonl"
+                f"Saved completions to {config.output_dir}/{folder_name}/{approach_fn}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_threshold_uq-{config.uq_threshold}_{config.num_samples}_method-{config.score_method}.jsonl"
             )
