@@ -13,7 +13,7 @@
 # Ignore .txt files
 *.txt
 # Ignore .yaml files
-*.yaml
+#*.yaml
 # Ignore .yml files
 *.yml
 # Ignore .json files
