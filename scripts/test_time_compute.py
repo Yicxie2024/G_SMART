@@ -36,9 +36,9 @@ from sal.search import (
     beam_search_conf,
     beam_search_smart,
     beam_search_smart_conf,
-    beam_search_smart_cocoa,
-    beam_search_smart_cocoa_default,
 )
+from sal.search.beam_search_smart_cocoa import smart_beam_search_cocoa as beam_search_smart_cocoa
+from sal.search.beam_search_smart_cocoa_default import smart_beam_search_cocoa_default as beam_search_smart_cocoa_default
 from datasets import Dataset
 
 logging.basicConfig(level=logging.INFO)
@@ -98,12 +98,13 @@ def main():
     if config.score_method == "conf":
         approach_suffix += "_conf"
     elif config.score_method.startswith("cocoa"):
-        approach_suffix += "_cocoa"
+        approach_suffix += "_cocoa" if not getattr(config, 'use_default_beam_search', False) else "_cocoa_default"
     approach_name = config.approach + approach_suffix
 
     if approach_name not in APPROACHES:
         raise ValueError(f"Invalid score method: {config.score_method}")
     approach_fn = APPROACHES[approach_name]
+    print("Approach name:", approach_name) 
 
     # log the search method and score method
     print(
@@ -239,7 +240,7 @@ def main():
         for n in subsets:
             keys.extend([f"pred_weighted@{n}", f"pred_maj@{n}", f"pred_naive@{n}"])
     else:
-        keys = ["pred", "pred_random_uniform"]
+        keys = ["pred", "pred_randomg"]
 
     dataset, result = evaluate(
         data_name="math", prompt_type=None, samples=dataset, pred_keys=keys

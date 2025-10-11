@@ -59,6 +59,14 @@ def calculate_confidence_score(answer_tokens_logprobs_list):
 def aggregate_scores(
     scores: list[float], agg_strategy: Literal["min", "prod", "last"]
 ) -> float:
+    # Handle case where scores is already a single float (already aggregated)
+    if isinstance(scores, (int, float)):
+        return float(scores)
+    
+    # Handle empty list
+    if not scores:
+        return 0.0
+    
     if agg_strategy == "min":
         return min(scores)
     elif agg_strategy == "prod":

@@ -360,7 +360,6 @@ def generate_k_steps_with_responses(
                 sample_params = copy.deepcopy(sampling_params)
                 # you want the sampling settings (example):
                 sample_params.temperature = uq_sampling_temperature if not i == 0 else getattr(sampling_params, "temperature", 0.8)
-                print("[DEBUG] sample_params.temperature:", sample_params.temperature)
                 sample_params.top_p = getattr(sampling_params, "top_p", 0.9)
                 sample_params.top_k = getattr(sampling_params, "top_k", 50)
                 sample_params.seed = getattr(sampling_params, "seed", 42)

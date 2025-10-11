@@ -47,15 +47,23 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
         print(f"max_num_samples: {max_num_samples} / {len(samples)}")
         samples = samples[:max_num_samples]
 
-    # automatically extend pred_keys: if there are pred_random_uniform, also evaluate it
+    # automatically extend pred_keys: if there are pred_random_uniform, pred_random, pred_slm, also evaluate them
     if pred_keys is None:
         candidate_keys = ['pred']
         if 'pred_random_uniform' in samples[0]:
             candidate_keys.append('pred_random_uniform')
+        if 'pred_slm' in samples[0]:
+            candidate_keys.append('pred_slm')
+        if 'pred_random' in samples[0]:
+            candidate_keys.append('pred_random')
         pred_keys = candidate_keys
     else:
         if 'pred_random_uniform' in samples[0] and 'pred_random_uniform' not in pred_keys:
             pred_keys = list(pred_keys) + ['pred_random_uniform']
+        if 'pred_slm' in samples[0] and 'pred_slm' not in pred_keys:
+            pred_keys = list(pred_keys) + ['pred_slm']
+        if 'pred_random' in samples[0] and 'pred_random' not in pred_keys:
+            pred_keys = list(pred_keys) + ['pred_random']
 
     # parse GT and extract final prediction
     for sample in samples:
@@ -143,6 +151,36 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
     else:
         completion_scores_random = None
 
+    # if there are completions_slm, also evaluate the correctness of each completion
+    have_slm_completions = 'completions_slm' in samples[0]
+    if have_slm_completions:
+        for sample in samples:
+            sample['pred_completions_slm'] = [
+                extract_answer(c, data_name) for c in sample.get('completions_slm', [])
+            ]
+        params_slm = [
+            (idx, pred, sample['gt'])
+            for idx, sample in enumerate(samples)
+            for pred in sample['pred_completions_slm']
+        ]
+        completion_scores_slm = []
+        progress_bar = tqdm(total=len(params_slm), desc="Evaluate per-completion (slm-only)")
+        for idx, pred, gt in params_slm:
+            try:
+                result = math_equal_process((idx, pred, gt))
+                completion_scores_slm.append(result)
+            except TimeoutError as error:
+                print(error)
+                completion_scores_slm.append(False)
+                timeout_cnt += 1
+            except Exception as error:
+                print(error)
+                exit()
+            progress_bar.update(1)
+        progress_bar.close()
+    else:
+        completion_scores_slm = None
+
     # fill back to samples
     # pred_keys matrix
     idx = 0
@@ -168,6 +206,15 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
             n = len(sample.get('pred_completions_random', []))
             sample['correct_completions_random'] = completion_scores_random[idx: idx + n]
             assert len(sample['correct_completions_random']) == n
+            idx += n
+
+    # the correctness of the slm-only completions
+    if completion_scores_slm is not None:
+        idx = 0
+        for sample in samples:
+            n = len(sample.get('pred_completions_slm', []))
+            sample['correct_completions_slm'] = completion_scores_slm[idx: idx + n]
+            assert len(sample['correct_completions_slm']) == n
             idx += n
 
     max_len = max([len(s) for s in score_mat])

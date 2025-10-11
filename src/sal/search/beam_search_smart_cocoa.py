@@ -297,13 +297,22 @@ def _beam_search(
         for i, (re_idx, beam) in enumerate(zip(re_indices, re_beams)):
             # log correction information
             beam.smart_step.append(iterate_idx)
-            beam.gen_update.append(
-                (active_beams[re_idx].next_texts[0], beam.next_texts[0])
-            )
+            slm_text = active_beams[re_idx].next_texts[0]
+            llm_text = beam.next_texts[0]
+            beam.gen_update.append((slm_text, llm_text))
             beam.llm_tokens.append(len(tokenizer.encode(beam.next_texts[0])))
             total_tokens += len(tokenizer.encode(beam.next_texts[0]))
             # reuse the original confidence scores
             beam.all_scores = active_beams[re_idx].all_scores
+            
+            # Debug: Print correction information
+            print(f"DEBUG: iteration {iterate_idx}, beam {re_idx} - CORRECTION")
+            print(f"  UQ Score: {conf_agg_scores[re_idx][0]:.4f}")
+            print(f"  SLM text (before): {repr(slm_text[:100])}{'...' if len(slm_text) > 100 else ''}")
+            print(f"  LLM text (after):  {repr(llm_text[:100])}{'...' if len(llm_text) > 100 else ''}")
+            print(f"  Text changed: {slm_text != llm_text}")
+            print()
+            
             active_beams[re_idx] = beam
             beam.llm_corrections = getattr(beam, "llm_corrections", 0) + 1
 

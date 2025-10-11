@@ -74,7 +74,7 @@ export SEED=0
 OPTION=${1:-0}
 
 # Clean the option parameter (remove any non-numeric characters)
-OPTION=$(echo "$OPTION" | sed 's/[^0-10]//g')
+OPTION=$(echo "$OPTION" | sed 's/[^0-9]//g')
 if [[ -z "$OPTION" ]]; then
   OPTION=0
 fi
@@ -89,10 +89,10 @@ case "$OPTION" in
   4) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=1 --score_method=prm) ;;
   5) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=prm) ;;
   6) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=conf) ;;
-  7) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=4 --uq_sampling_temperature=1.2 --score_method=cocoa_msp --uq_threshold=0.1) ;;
+  7) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=1 --beam_width=16 --uq_sampling_temperature=1.2 --score_method=cocoa_msp --uq_threshold=0.1) ;;
   8) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=4 --uq_sampling_temperature=1.2 --score_method=cocoa_ppl --uq_threshold=0.01) ;;
   9) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=4 --uq_sampling_temperature=1.2 --score_method=cocoa_entropy --uq_threshold=0.01) ;;
-  10) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --uq_sampling_temperature=1.2 --score_method=cocoa_msp --uq_threshold=0.1) ;;
+  10) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --uq_sampling_temperature=0.8 --score_method=cocoa_msp --uq_threshold=0.1) ;;
   *) echo "Unknown OPTION=$OPTION. Valid options are 0-10." >&2; exit 1 ;;
 esac
 
