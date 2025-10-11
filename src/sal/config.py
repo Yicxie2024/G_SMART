@@ -51,8 +51,8 @@ class Config:
     dataset_name: str = "HuggingFaceH4/MATH-500"
     dataset_config: str = None
     dataset_split: str = "test"
-    dataset_start: int = None
-    dataset_end: int = None
+    dataset_start: int = 0
+    dataset_end: int = 1
     num_samples: int = None
 
     # Chat template related options
@@ -75,7 +75,7 @@ class Config:
     agg_strategy: str = "last"  # Options: "last", "min", "prod"
     # consider logprobs_based_score as a score ex) likelihood
     conf_strategy: str = "probs_mean"  # Options: "log_sum", "log_mean", "probs_mean"
-
+    use_default_beam_search: bool = False
     # DVTS / Beam Search options
     beam_width: int = 4  # m=4 in the paper
     num_iterations: int = 40

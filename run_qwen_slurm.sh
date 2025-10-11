@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=smart
-#SBATCH --nodelist=scratchy
+#SBATCH --nodelist=rubeus
 #SBATCH --partition=gpu
 #SBATCH --qos=gpu-small
 #SBATCH --gres=gpu:1
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 echo "=== Activating env ==="
-source /storage/ukp/work/xie12/miniconda3/bin/activate smart2
+source /storage/ukp/work/xie12/miniconda3/bin/activate smart_clean
 
 # ---------- Paths & caches ----------
 BASE=/mnt/beegfs/work/xie12
@@ -74,7 +74,7 @@ export SEED=0
 OPTION=${1:-0}
 
 # Clean the option parameter (remove any non-numeric characters)
-OPTION=$(echo "$OPTION" | sed 's/[^0-9]//g')
+OPTION=$(echo "$OPTION" | sed 's/[^0-10]//g')
 if [[ -z "$OPTION" ]]; then
   OPTION=0
 fi
@@ -92,7 +92,8 @@ case "$OPTION" in
   7) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=4 --uq_sampling_temperature=1.2 --score_method=cocoa_msp --uq_threshold=0.1) ;;
   8) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=4 --uq_sampling_temperature=1.2 --score_method=cocoa_ppl --uq_threshold=0.01) ;;
   9) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=4 --uq_sampling_temperature=1.2 --score_method=cocoa_entropy --uq_threshold=0.01) ;;
-  *) echo "Unknown OPTION=$OPTION. Valid options are 0-9." >&2; exit 1 ;;
+  10) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --uq_sampling_temperature=1.2 --score_method=cocoa_msp --uq_threshold=0.1) ;;
+  *) echo "Unknown OPTION=$OPTION. Valid options are 0-10." >&2; exit 1 ;;
 esac
 
 echo "=== Using LOCAL cache at: $LOCAL ==="

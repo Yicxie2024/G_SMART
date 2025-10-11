@@ -37,6 +37,7 @@ from sal.search import (
     beam_search_smart,
     beam_search_smart_conf,
     beam_search_smart_cocoa,
+    beam_search_smart_cocoa_default,
 )
 from datasets import Dataset
 
@@ -51,6 +52,7 @@ APPROACHES = {
     "beam_search_conf": beam_search_conf,
     "beam_search_smart_conf": beam_search_smart_conf,
     "beam_search_smart_cocoa": beam_search_smart_cocoa,
+    "beam_search_smart_cocoa_default": beam_search_smart_cocoa_default,
     "best_of_n": best_of_n,
     "best_of_n_smart": best_of_n_smart,
     "best_of_n_conf": best_of_n_conf,

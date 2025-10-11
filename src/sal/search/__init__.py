@@ -39,6 +39,14 @@ try:
     from .beam_search_smart_cocoa import smart_beam_search_cocoa as beam_search_smart_cocoa
 except Exception:
     pass
+try:
+    from .beam_search_smart_cocoa_default import smart_beam_search_cocoa_default as beam_search_smart_cocoa_default
+except Exception:
+    pass
+try:
+    from .beam_search_smart_uhead import smart_beam_search_uhead as beam_search_smart_uhead
+except Exception:
+    pass
 # --- utils ---
 try:
     from .utils import *
