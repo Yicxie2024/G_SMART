@@ -15,6 +15,7 @@
 import copy
 import logging
 from collections import defaultdict
+import time
 
 import numpy as np
 from tqdm import tqdm
@@ -51,6 +52,7 @@ def _beam_search(
     )
 
     beams: list[Beam] = []
+    start_time = time.time()  # Record start time for this beam
     for prompt in batch_of_prompts:
         for i in range(config.n):
             beams.append(
@@ -73,6 +75,8 @@ def _beam_search(
                     gen_update=[],
                     llm_tokens=[],
                     llm_corrections=0,
+                    completion_time=0.0,  # Track total completion time
+                    llm_correction_tokens=0,  # Track total LLM correction tokens
                 )
             )
 
@@ -282,8 +286,10 @@ def _beam_search(
             beam.gen_update.append(
                 (active_beams[re_idx].next_texts[0], beam.next_texts[0])
             )
-            beam.llm_tokens.append(len(tokenizer.encode(beam.next_texts[0])))
-            total_tokens += len(tokenizer.encode(beam.next_texts[0]))
+            llm_token_count = len(tokenizer.encode(beam.next_texts[0]))
+            beam.llm_tokens.append(llm_token_count)
+            beam.llm_correction_tokens = getattr(beam, "llm_correction_tokens", 0) + llm_token_count
+            total_tokens += llm_token_count
             # reuse the original confidence scores
             beam.all_scores = active_beams[re_idx].all_scores
             active_beams[re_idx] = beam
@@ -314,16 +320,27 @@ def _beam_search(
     # for problem, info in problem_info.items():
     #     print(f"{{question: {problem}, generate_llm: {info['generate_llm']}, score_changed: {info['score_changed']}, text_changed: {info['text_changed']}}}")
 
+    # Record completion time for all beams
+    end_time = time.time()
+    completion_time = end_time - start_time
+    for beam in completed_beams:
+        beam.completion_time = completion_time
+
     if smart_done == False:
         for beam in completed_beams:
             beam.smart_step = [-1]
             beam.gen_update = [("-1", "-1")]
             beam.llm_tokens = [-1]
+            beam.llm_correction_tokens = 0  # No LLM corrections
 
-    # recalculate prm scores for completed beams
-    prompts = [b.prompt for b in completed_beams]
-    completions = [[b.current_text] for b in completed_beams]
-    prm_scores = prm.score(prompts, completions)
+    # recalculate prm scores for completed beams (if PRM model is available)
+    if prm is not None:
+        prompts = [b.prompt for b in completed_beams]
+        completions = [[b.current_text] for b in completed_beams]
+        prm_scores = prm.score(prompts, completions)
+    else:
+        # When using confidence-based scoring, we don't need PRM scores
+        prm_scores = None
 
     return completed_beams, total_tokens, prm_scores
 
@@ -339,7 +356,14 @@ def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: No
     for results in beam_results:
         grouped_results[results.prompt].append(results)
 
-    results = {"completions": [], "pred": [], "scores": [], "correction_counts": []}
+    results = {
+        "completions": [], 
+        "pred": [], 
+        "scores": [], 
+        "correction_counts": [],
+        "completion_times": [],  # Timing for each completion
+        "llm_correction_tokens": [],  # LLM correction tokens for each completion
+    }
     tokenizer = slm.get_tokenizer()
 
     for p in problems:
@@ -352,8 +376,13 @@ def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: No
             )
         ]
         counts = [getattr(b, "llm_corrections", 0) for b in beams]
+        times = [getattr(b, "completion_time", 0.0) for b in beams]
+        tokens = [getattr(b, "llm_correction_tokens", 0) for b in beams]
+        
         results["completions"].append(completions)
         results["pred"].append(pred)
         results["scores"].append(scores)
         results["correction_counts"].append(counts)
+        results["completion_times"].append(times)
+        results["llm_correction_tokens"].append(tokens)
     return results

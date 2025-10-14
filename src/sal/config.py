@@ -51,8 +51,9 @@ class Config:
     dataset_name: str = "HuggingFaceH4/MATH-500"
     dataset_config: str = None
     dataset_split: str = "test"
-    dataset_start: int = 0
-    dataset_end: int = 1
+    data_name: str = "math"  # For evaluation: "math", "gsm8k", "mmlu_pro", etc.
+    dataset_start: int = None
+    dataset_end: int = None
     num_samples: int = None
 
     # Chat template related options
@@ -84,6 +85,10 @@ class Config:
     # Beam search options:
     filter_duplicates: bool = False
     sort_completed: bool = False
+    
+    # Baseline comparison options:
+    run_slm_baseline: bool = True  # Whether to run SLM-only baseline
+    run_random_baseline: bool = True  # Whether to run random correction baseline
 
     def __post_init__(self):
         if self.approach == "dvts":

@@ -212,10 +212,14 @@ def _beam_search(
         ]
         completed_beams = extended_completed_beams
 
-    # recalculate prm scores for completed beams
-    prompts = [b.prompt for b in completed_beams]
-    completions = [[b.current_text] for b in completed_beams]
-    prm_scores = prm.score(prompts, completions)
+    # recalculate prm scores for completed beams (if PRM model is available)
+    if prm is not None:
+        prompts = [b.prompt for b in completed_beams]
+        completions = [[b.current_text] for b in completed_beams]
+        prm_scores = prm.score(prompts, completions)
+    else:
+        # When using confidence-based scoring, we don't need PRM scores
+        prm_scores = None
 
     return completed_beams, total_tokens, prm_scores
 

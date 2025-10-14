@@ -22,6 +22,7 @@ from vllm import LLM, SamplingParams
 
 from sal.config import Config
 from sal.models.reward_models import PRM
+from sal.models.embedding_models import get_embedding_model
 
 from .utils import (
     Beam,
@@ -38,7 +39,7 @@ from transformers import AutoTokenizer
 
 
 def _beam_search(
-    batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None
+    batch_of_prompts, config: Config, slm: LLM, prm: PRM = None, llm: None = None, embedding_model = None
 ) -> tuple:
     sampling_params = SamplingParams(
         temperature=config.temperature,
@@ -79,6 +80,10 @@ def _beam_search(
     completed_beams: list[Beam] = []
     total_tokens = 0
     smart_done = False
+
+    # Get embedding model (cached globally to avoid repeated loading)
+    if embedding_model is None:
+        embedding_model = get_embedding_model()
 
     for iterate_idx in tqdm(
         range(config.num_iterations), desc="Beam search iterations"
@@ -169,12 +174,11 @@ def _beam_search(
         #     for score in scores
         # ]
         
-        from sentence_transformers import SentenceTransformer
-        sbert = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+        # Use the embedding model for semantic consistency calculation
         def _detok(ids):  # 你的 tokenizer 解码函数
             return tokenizer.decode(ids, skip_special_tokens=True)
         def _embed_fn(texts):
-            vecs = sbert.encode(texts, convert_to_numpy=True, normalize_embeddings=False)
+            vecs = embedding_model.encode(texts, convert_to_numpy=True, normalize_embeddings=False)
             return vecs
         
         conf_agg_scores = []
@@ -347,18 +351,28 @@ def _beam_search(
             beam.gen_update = [("-1", "-1")]
             beam.llm_tokens = [-1]
 
-    # recalculate prm scores for completed beams
-    prompts = [b.prompt for b in completed_beams]
-    completions = [[b.current_text] for b in completed_beams]
-    prm_scores = prm.score(prompts, completions)
+    # recalculate prm scores for completed beams (optional for CoCoA methods)
+    if prm is not None:
+        prompts = [b.prompt for b in completed_beams]
+        completions = [[b.current_text] for b in completed_beams]
+        prm_scores = prm.score(prompts, completions)
+    else:
+        # CoCoA methods don't use PRM scores
+        prm_scores = [[0.0] for _ in completed_beams]
+
+    # Don't delete sbert here - it will be reused across samples
 
     return completed_beams, total_tokens, prm_scores
 
 
-def smart_beam_search_cocoa(examples, config: Config, slm: LLM, prm: PRM, llm: None):
+def smart_beam_search_cocoa(examples, config: Config, slm: LLM, prm: PRM = None, llm: None = None):
     problems = examples["problem"]
+    
+    # Get embedding model (cached globally to avoid repeated loading across samples)
+    embedding_model = get_embedding_model()
+    
     beam_results, total_tokens, prm_scores = _beam_search(
-        problems, config, slm, prm, llm
+        problems, config, slm, prm, llm, embedding_model
     )
 
     # Group together alike beams and store in the dataset
@@ -383,4 +397,7 @@ def smart_beam_search_cocoa(examples, config: Config, slm: LLM, prm: PRM, llm: N
         results["pred"].append(pred)
         results["scores"].append(scores)
         results["correction_counts"].append(counts)
+    
+    # Embedding model is managed globally, no cleanup needed here
+    
     return results

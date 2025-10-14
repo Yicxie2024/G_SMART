@@ -65,6 +65,9 @@ def load_data(data_name, split, data_dir="./data"):
             ]
             dataset = dataset.rename_column("subject", "type")
             dataset = dataset.filter(lambda x: x["type"] in stem_subjects)
+        elif data_name == "mmlu_pro":
+            # Load MMLU-Pro dataset
+            dataset = load_dataset("TIGER-Lab/MMLU-Pro", split=split, trust_remote_code=True)
         elif data_name == "carp_en":
             dataset = load_jsonl(f"{data_dir}/carp_en/test.jsonl")
         else:

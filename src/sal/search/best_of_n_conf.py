@@ -101,10 +101,15 @@ def best_of_n_conf(x, config: Config, llm: LLM, prm: PRM):
         if len(c) != config.n:
             raise ValueError(f"Generated {len(c)} completions instead of {config.n}")
 
-    scores = prm.score(x["problem"], completions)
-    agg_scores_prm = [
-        [aggregate_scores(s, config.agg_strategy) for s in score] for score in scores
-    ]
+    # For confidence-based scoring, we don't need PRM scores
+    if prm is not None:
+        scores = prm.score(x["problem"], completions)
+        agg_scores_prm = [
+            [aggregate_scores(s, config.agg_strategy) for s in score] for score in scores
+        ]
+    else:
+        # Use confidence scores from logprobs instead
+        scores = None
 
     # select which score will be using in prediction.
     if config.logprobs_score_strategy == "log_sum":

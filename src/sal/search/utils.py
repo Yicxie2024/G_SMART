@@ -79,6 +79,8 @@ class Beam:
     gen_update: list[tuple[list[str], list[str]]] = field(default_factory=list)
     llm_tokens: list[int] = field(default_factory=list)
     llm_corrections: int = 0
+    completion_time: float = 0.0  # Track total completion time for this beam
+    llm_correction_tokens: int = 0  # Track total LLM correction tokens
 
 
 @dataclass

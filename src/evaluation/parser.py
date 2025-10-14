@@ -386,7 +386,8 @@ def choice_answer_clean(pred: str):
     pred = pred.strip("\n").rstrip(".").rstrip("/").strip(" ").lstrip(":")
 
     # Clean the answer based on the dataset
-    tmp = re.findall(r"\b(A|B|C|D|E)\b", pred.upper())
+    # Support A-J for MMLU-Pro (10 options)
+    tmp = re.findall(r"\b([A-J])\b", pred.upper())
     if tmp:
         pred = tmp
     else:
@@ -498,8 +499,8 @@ def extract_theoremqa_answer(pred: str, answer_flag: bool = True):
 
 def extract_answer(pred_str, data_name, use_last_number=True):
     pred_str = pred_str.replace("\u043a\u0438", "")
-    if data_name in ["mmlu_stem", "sat_math", "aqua", "gaokao2023"]:
-        # TODO check multiple choice
+    if data_name in ["mmlu_stem", "mmlu_pro", "sat_math", "aqua", "gaokao2023"]:
+        # Multiple choice questions
         return choice_answer_clean(pred_str)
 
     if "final answer is $" in pred_str and "$. I hope" in pred_str:
@@ -547,10 +548,12 @@ def extract_answer(pred_str, data_name, use_last_number=True):
 
     # choice answer
     if (
-        data_name in ["sat_math", "aqua"]
+        data_name in ["sat_math", "aqua", "mmlu_pro"]
         or "mmlu" in data_name
     ):
-        tmp = re.findall(r"\b(A|B|C|D|E)\b", pred.upper())
+        # Support up to 10 options (A-J) for MMLU-Pro
+        pattern = r"\b([A-J])\b" if "pro" in data_name else r"\b([A-E])\b"
+        tmp = re.findall(pattern, pred.upper())
         if tmp:
             pred = tmp[-1]
         else:
@@ -612,6 +615,20 @@ def parse_ground_truth(example: Dict[str, Any], data_name):
     elif data_name == "mmlu_stem":
         abcd = "ABCD"
         gt_cot, gt_ans = None, abcd[example["answer"]]
+    elif data_name == "mmlu_pro":
+        # MMLU-Pro answer parsing
+        answer = example.get("answer", example.get("answer_index"))
+        if isinstance(answer, int):
+            # Convert index to letter (0->A, 1->B, etc.)
+            gt_ans = "ABCDEFGHIJ"[answer]
+        else:
+            # Already a letter, just clean it
+            gt_ans = str(answer).strip().upper()
+            # Extract single letter if wrapped in parentheses
+            match = re.search(r"([A-J])", gt_ans)
+            if match:
+                gt_ans = match.group(1)
+        gt_cot = None
     elif data_name == "sat_math":
         gt_cot, gt_ans = None, example["Answer"]
     elif data_name == "aqua":
@@ -680,6 +697,17 @@ def parse_question(example, data_name):
         options = " ".join(options)
         # question = f"{example['question'].strip()}\nWhat of the following is the right choice? Explain your answer.\n{options}"
         question = f"{example['question'].strip()}\nAnswer Choices: {options}"
+    elif data_name == "mmlu_pro":
+        # MMLU-Pro has up to 10 options
+        options = example.get("options", example.get("choices", []))
+        question = example["question"].strip()
+        if options:
+            formatted_options = []
+            option_letters = "ABCDEFGHIJ"[:len(options)]
+            for label, option in zip(option_letters, options):
+                formatted_options.append(f"({label}) {str(option).strip()}")
+            options_str = " ".join(formatted_options)
+            question = f"{question}\nAnswer Choices: {options_str}"
     elif data_name == "sat_math":
         options = example["options"].strip()
         assert "A" == options[0]

@@ -18,6 +18,14 @@ from sympy.parsing.sympy_parser import parse_expr
 from sympy.parsing.latex import parse_latex
 from latex2sympy2 import latex2sympy
 
+# Set multiprocessing start method to 'fork' to avoid "No such file or directory" errors
+# This must be done before any multiprocessing operations
+try:
+    multiprocessing.set_start_method('fork', force=True)
+except RuntimeError:
+    # Start method already set, this is fine
+    pass
+
 # from .parser import choice_answer_clean, strip_string
 # from parser import choice_answer_clean
 
@@ -264,6 +272,14 @@ def math_equal_process(param):
         # param is a tuple (idx, pred, gt), we need pred and gt
         idx, pred, gt = param
         return math_equal(pred, gt, timeout=True)
+    except FileNotFoundError as e:
+        # Multiprocessing module file error, try without timeout as fallback
+        try:
+            idx, pred, gt = param
+            return math_equal(pred, gt, timeout=False)
+        except Exception as e2:
+            print(f"Error in math_equal_process fallback: {e2}")
+            return False
     except Exception as e:
         print(f"Error in math_equal_process: {e}")
         return False
@@ -341,18 +357,30 @@ def symbolic_equal_process(a, b, output_queue):
 
 
 def call_with_timeout(func, *args, timeout=1, **kwargs):
-    output_queue = multiprocessing.Queue()
-    process_args = args + (output_queue,)
-    process = multiprocessing.Process(target=func, args=process_args, kwargs=kwargs)
-    process.start()
-    process.join(timeout)
+    try:
+        output_queue = multiprocessing.Queue()
+        process_args = args + (output_queue,)
+        process = multiprocessing.Process(target=func, args=process_args, kwargs=kwargs)
+        process.start()
+        process.join(timeout)
 
-    if process.is_alive():
-        process.terminate()
-        process.join()
+        if process.is_alive():
+            process.terminate()
+            process.join()
+            return False
+
+        return output_queue.get()
+    except Exception as e:
+        # If multiprocessing fails, fall back to direct call without timeout
+        # This prevents accuracy from being affected by multiprocessing issues
+        print(f"Error in call_with_timeout: {e}, falling back to direct call")
+        # For symbolic_equal_process, we need to extract the actual function
+        if func == symbolic_equal_process and len(args) >= 2:
+            try:
+                return symbolic_equal(args[0], args[1])
+            except:
+                return False
         return False
-
-    return output_queue.get()
 
 def _test_math_equal():
     # print(math_equal("0.0833333333333333", "\\frac{1}{12}"))

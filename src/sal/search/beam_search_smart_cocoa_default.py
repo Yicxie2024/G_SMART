@@ -15,6 +15,7 @@
 import copy
 import logging
 from collections import defaultdict
+import time
 
 import numpy as np
 from tqdm import tqdm
@@ -22,6 +23,7 @@ from vllm import LLM, SamplingParams
 
 from sal.config import Config
 from sal.models.reward_models import PRM
+from sal.models.embedding_models import get_embedding_model
 
 from .utils import (
     Beam,
@@ -37,7 +39,7 @@ from transformers import AutoTokenizer
 
 
 def _beam_search(
-    batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None
+    batch_of_prompts, config: Config, slm: LLM, prm: PRM = None, llm: None = None, embedding_model = None
 ) -> tuple:
     sampling_params = SamplingParams(
         temperature=config.temperature,
@@ -51,6 +53,7 @@ def _beam_search(
 
     # 只维护1个beam per prompt (不是config.n个)
     beams: list[Beam] = []
+    start_time = time.time()  # Record start time for this beam
     for prompt in batch_of_prompts:
         beams.append(
             Beam(
@@ -72,12 +75,18 @@ def _beam_search(
                 gen_update=[],
                 llm_tokens=[],
                 llm_corrections=0,
+                completion_time=0.0,  # Track total completion time
+                llm_correction_tokens=0,  # Track total LLM correction tokens
             )
         )
 
     completed_beams: list[Beam] = []
     total_tokens = 0
     smart_done = False
+
+    # Get embedding model (cached globally to avoid repeated loading)
+    if embedding_model is None:
+        embedding_model = get_embedding_model()
 
     for iterate_idx in tqdm(
         range(config.num_iterations), desc="UQ-guided generation", disable=False
@@ -156,12 +165,11 @@ def _beam_search(
         #     for score in scores
         # ]
         
-        from sentence_transformers import SentenceTransformer
-        sbert = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+        # Use the embedding model for semantic consistency calculation
         def _detok(ids):
             return tokenizer.decode(ids, skip_special_tokens=True)
         def _embed_fn(texts):
-            vecs = sbert.encode(texts, convert_to_numpy=True, normalize_embeddings=False)
+            vecs = embedding_model.encode(texts, convert_to_numpy=True, normalize_embeddings=False)
             return vecs
         
         # 只有1个beam，直接计算其UQ分数
@@ -271,8 +279,10 @@ def _beam_search(
         # log correction information
         beam.smart_step.append(iterate_idx)
         beam.gen_update.append((slm_text, llm_text))
-        beam.llm_tokens.append(len(tokenizer.encode(beam.next_texts[0])))
-        total_tokens += len(tokenizer.encode(beam.next_texts[0]))
+        llm_token_count = len(tokenizer.encode(beam.next_texts[0]))
+        beam.llm_tokens.append(llm_token_count)
+        beam.llm_correction_tokens = getattr(beam, "llm_correction_tokens", 0) + llm_token_count
+        total_tokens += llm_token_count
         # reuse the original confidence scores
         beam.all_scores = active_beams[0].all_scores
         
@@ -298,22 +308,35 @@ def _beam_search(
     # for problem, info in problem_info.items():
     #     print(f"{{question: {problem}, generate_llm: {info['generate_llm']}, score_changed: {info['score_changed']}, text_changed: {info['text_changed']}}}")
 
+    # Record completion time for all beams
+    end_time = time.time()
+    completion_time = end_time - start_time
+    for beam in completed_beams:
+        beam.completion_time = completion_time
+    
     if smart_done == False:
         for beam in completed_beams:
             beam.smart_step = [-1]
             beam.gen_update = [("-1", "-1")]
             beam.llm_tokens = [-1]
+            beam.llm_correction_tokens = 0  # No LLM corrections
 
-    # recalculate prm scores for completed beams
-    prompts = [b.prompt for b in completed_beams]
-    completions = [[b.current_text] for b in completed_beams]
-    prm_scores = prm.score(prompts, completions)
+    # recalculate prm scores for completed beams (optional for CoCoA methods)
+    if prm is not None:
+        prompts = [b.prompt for b in completed_beams]
+        completions = [[b.current_text] for b in completed_beams]
+        prm_scores = prm.score(prompts, completions)
+    else:
+        # CoCoA methods don't use PRM scores
+        prm_scores = [[0.0] for _ in completed_beams]
+
+    # Don't delete sbert here - it will be reused across samples
 
     return completed_beams, total_tokens, prm_scores
 
 
 def _beam_search_slm_only(
-    batch_of_prompts, config: Config, slm: LLM, prm: PRM
+    batch_of_prompts, config: Config, slm: LLM, prm: PRM = None
 ) -> tuple:
     """SLM-only baseline: no corrections at all."""
     sampling_params = SamplingParams(
@@ -327,6 +350,7 @@ def _beam_search_slm_only(
     )
 
     beams: list[Beam] = []
+    start_time = time.time()  # Record start time for SLM-only baseline
     for prompt in batch_of_prompts:
         beams.append(
             Beam(
@@ -348,6 +372,8 @@ def _beam_search_slm_only(
                 gen_update=[],
                 llm_tokens=[],
                 llm_corrections=0,
+                completion_time=0.0,
+                llm_correction_tokens=0,
             )
         )
 
@@ -420,21 +446,30 @@ def _beam_search_slm_only(
         if len(active_beams) == 0:
             break
 
+    # Record completion time for SLM-only baseline
+    end_time = time.time()
+    completion_time = end_time - start_time
+    
     # Mark as no corrections done
     for beam in completed_beams:
         beam.smart_step = [-1]
         beam.gen_update = [("-1", "-1")]
         beam.llm_tokens = [-1]
+        beam.completion_time = completion_time
+        beam.llm_correction_tokens = 0  # No LLM corrections in SLM-only
 
-    prompts = [b.prompt for b in completed_beams]
-    completions = [[b.current_text] for b in completed_beams]
-    prm_scores = prm.score(prompts, completions)
+    if prm is not None:
+        prompts = [b.prompt for b in completed_beams]
+        completions = [[b.current_text] for b in completed_beams]
+        prm_scores = prm.score(prompts, completions)
+    else:
+        prm_scores = [[0.0] for _ in completed_beams]
 
     return completed_beams, total_tokens, prm_scores
 
 
 def _beam_search_random_correction(
-    batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None, target_correction_count: int
+    batch_of_prompts, config: Config, slm: LLM, prm: PRM = None, llm: None = None, target_correction_count: int = 0
 ) -> tuple:
     """Random correction: randomly select steps to apply LLM correction.
     
@@ -459,6 +494,7 @@ def _beam_search_random_correction(
     )
 
     beams: list[Beam] = []
+    start_time = time.time()  # Record start time for random correction
     for prompt in batch_of_prompts:
         beams.append(
             Beam(
@@ -480,6 +516,8 @@ def _beam_search_random_correction(
                 gen_update=[],
                 llm_tokens=[],
                 llm_corrections=0,
+                completion_time=0.0,
+                llm_correction_tokens=0,
             )
         )
 
@@ -592,10 +630,12 @@ def _beam_search_random_correction(
             llm_text = gen_result_llm.next_texts[0]
             
             # Record correction info
+            llm_token_count = len(tokenizer_llm.encode(llm_text))
             beam.smart_step.append(step_idx)
             beam.gen_update.append((slm_text, llm_text))
-            beam.llm_tokens.append(len(tokenizer_llm.encode(llm_text)))
-            total_tokens += len(tokenizer_llm.encode(llm_text))
+            beam.llm_tokens.append(llm_token_count)
+            beam.llm_correction_tokens += llm_token_count
+            total_tokens += llm_token_count
             beam.llm_corrections += 1
             
             # Replace the step in history
@@ -604,19 +644,31 @@ def _beam_search_random_correction(
         # Reconstruct final text
         beam.current_text = "".join(beam.history)
 
-    prompts = [b.prompt for b in completed_beams]
-    completions = [[b.current_text] for b in completed_beams]
-    prm_scores = prm.score(prompts, completions)
+    # Record completion time for random correction
+    end_time = time.time()
+    completion_time = end_time - start_time
+    for beam in completed_beams:
+        beam.completion_time = completion_time
+
+    if prm is not None:
+        prompts = [b.prompt for b in completed_beams]
+        completions = [[b.current_text] for b in completed_beams]
+        prm_scores = prm.score(prompts, completions)
+    else:
+        prm_scores = [[0.0] for _ in completed_beams]
 
     return completed_beams, total_tokens, prm_scores
 
 
-def smart_beam_search_cocoa_default(examples, config: Config, slm: LLM, prm: PRM, llm: None):
+def smart_beam_search_cocoa_default(examples, config: Config, slm: LLM, prm: PRM = None, llm: None = None):
     problems = examples["problem"]
+    
+    # Get embedding model (cached globally to avoid repeated loading across samples)
+    embedding_model = get_embedding_model()
     
     # 1. UQ-guided correction (original)
     beam_results_uq, total_tokens_uq, prm_scores_uq = _beam_search(
-        problems, config, slm, prm, llm
+        problems, config, slm, prm, llm, embedding_model
     )
     
     # Get correction counts from UQ-guided results
@@ -630,24 +682,31 @@ def smart_beam_search_cocoa_default(examples, config: Config, slm: LLM, prm: PRM
         count = sum(getattr(b, "llm_corrections", 0) for b in beams)
         correction_counts.append(count)
     
+    # Run baselines based on individual flags
+    run_slm_baseline = getattr(config, 'run_slm_baseline', True)
+    run_random_baseline = getattr(config, 'run_random_baseline', True)
+    
     # 2. SLM-only baseline
-    beam_results_slm, total_tokens_slm, prm_scores_slm = _beam_search_slm_only(
-        problems, config, slm, prm
-    )
+    if run_slm_baseline:
+        beam_results_slm, total_tokens_slm, prm_scores_slm = _beam_search_slm_only(
+            problems, config, slm, prm
+        )
+        grouped_results_slm = defaultdict(list)
+        for results in beam_results_slm:
+            grouped_results_slm[results.prompt].append(results)
+    else:
+        grouped_results_slm = defaultdict(list)
     
     # 3. Random correction (using same correction counts as UQ-guided)
-    beam_results_random, total_tokens_random, prm_scores_random = _beam_search_random_correction(
-        problems, config, slm, prm, llm, correction_counts[0]  # Assuming single problem
-    )
-
-    # Group results for each method
-    grouped_results_slm = defaultdict(list)
-    for results in beam_results_slm:
-        grouped_results_slm[results.prompt].append(results)
-    
-    grouped_results_random = defaultdict(list)
-    for results in beam_results_random:
-        grouped_results_random[results.prompt].append(results)
+    if run_random_baseline:
+        beam_results_random, total_tokens_random, prm_scores_random = _beam_search_random_correction(
+            problems, config, slm, prm, llm, correction_counts[0]  # Assuming single problem
+        )
+        grouped_results_random = defaultdict(list)
+        for results in beam_results_random:
+            grouped_results_random[results.prompt].append(results)
+    else:
+        grouped_results_random = defaultdict(list)
 
     # Prepare output with all three methods
     results = {
@@ -656,15 +715,20 @@ def smart_beam_search_cocoa_default(examples, config: Config, slm: LLM, prm: PRM
         "pred": [],
         "scores": [],
         "correction_counts": [],
+        "completion_times_uq": [],  # Timing for UQ-guided method
+        "llm_correction_tokens_uq": [],  # LLM correction tokens for UQ-guided
         # SLM-only results
         "completions_slm": [],
         "pred_slm": [],
         "scores_slm": [],
+        "completion_times_slm": [],  # Timing for SLM-only
         # Random correction results
         "completions_random": [],
         "pred_random": [],
         "scores_random": [],
         "correction_counts_random": [],
+        "completion_times_random": [],  # Timing for random correction
+        "llm_correction_tokens_random": [],  # LLM correction tokens for random
     }
     tokenizer = slm.get_tokenizer()
 
@@ -675,33 +739,59 @@ def smart_beam_search_cocoa_default(examples, config: Config, slm: LLM, prm: PRM
         scores_uq = [b.all_scores for b in beams_uq]
         pred_uq = completions_uq[0] if len(completions_uq) > 0 else ""
         counts_uq = [getattr(b, "llm_corrections", 0) for b in beams_uq]
+        times_uq = [getattr(b, "completion_time", 0.0) for b in beams_uq]
+        tokens_uq = [getattr(b, "llm_correction_tokens", 0) for b in beams_uq]
         
-        # SLM-only
-        beams_slm = grouped_results_slm[p]
-        completions_slm = [b.current_text for b in beams_slm]
-        scores_slm = [b.all_scores for b in beams_slm]
-        pred_slm = completions_slm[0] if len(completions_slm) > 0 else ""
-        
-        # Random correction
-        beams_random = grouped_results_random[p]
-        completions_random = [b.current_text for b in beams_random]
-        scores_random = [b.all_scores for b in beams_random]
-        pred_random = completions_random[0] if len(completions_random) > 0 else ""
-        counts_random = [getattr(b, "llm_corrections", 0) for b in beams_random]
-        
-        # Store results
+        # Store UQ-guided results
         results["completions"].append(completions_uq)
         results["pred"].append(pred_uq)
         results["scores"].append(scores_uq)
         results["correction_counts"].append(counts_uq)
+        results["completion_times_uq"].append(times_uq)
+        results["llm_correction_tokens_uq"].append(tokens_uq)
         
-        results["completions_slm"].append(completions_slm)
-        results["pred_slm"].append(pred_slm)
-        results["scores_slm"].append(scores_slm)
+        # SLM-only baseline
+        if run_slm_baseline:
+            beams_slm = grouped_results_slm[p]
+            completions_slm = [b.current_text for b in beams_slm]
+            scores_slm = [b.all_scores for b in beams_slm]
+            pred_slm = completions_slm[0] if len(completions_slm) > 0 else ""
+            times_slm = [getattr(b, "completion_time", 0.0) for b in beams_slm]
+            
+            results["completions_slm"].append(completions_slm)
+            results["pred_slm"].append(pred_slm)
+            results["scores_slm"].append(scores_slm)
+            results["completion_times_slm"].append(times_slm)
+        else:
+            results["completions_slm"].append([])
+            results["pred_slm"].append("")
+            results["scores_slm"].append([])
+            results["completion_times_slm"].append([])
         
-        results["completions_random"].append(completions_random)
-        results["pred_random"].append(pred_random)
-        results["scores_random"].append(scores_random)
-        results["correction_counts_random"].append(counts_random)
+        # Random correction baseline
+        if run_random_baseline:
+            beams_random = grouped_results_random[p]
+            completions_random = [b.current_text for b in beams_random]
+            scores_random = [b.all_scores for b in beams_random]
+            pred_random = completions_random[0] if len(completions_random) > 0 else ""
+            counts_random = [getattr(b, "llm_corrections", 0) for b in beams_random]
+            times_random = [getattr(b, "completion_time", 0.0) for b in beams_random]
+            tokens_random = [getattr(b, "llm_correction_tokens", 0) for b in beams_random]
+            
+            results["completions_random"].append(completions_random)
+            results["pred_random"].append(pred_random)
+            results["scores_random"].append(scores_random)
+            results["correction_counts_random"].append(counts_random)
+            results["completion_times_random"].append(times_random)
+            results["llm_correction_tokens_random"].append(tokens_random)
+        else:
+            results["completions_random"].append([])
+            results["pred_random"].append("")
+            results["scores_random"].append([])
+            results["correction_counts_random"].append([])
+            results["completion_times_random"].append([])
+            results["llm_correction_tokens_random"].append([])
+    
+    # Embedding model is managed globally, no cleanup needed here
     
     return results

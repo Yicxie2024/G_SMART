@@ -150,7 +150,8 @@ def main():
                 load_from_cache_file=False,
             )
         elif config.score_method == "conf":
-            prm = load_prm(config)
+            # Confidence-based scoring doesn't need PRM model
+            prm = None
 
             dataset = get_dataset(config)
             dataset = dataset.map(
@@ -162,7 +163,8 @@ def main():
                 load_from_cache_file=False,
             )
         elif config.score_method.startswith("cocoa"):
-            prm = load_prm(config)
+            # CoCoA methods don't need PRM model - they use semantic consistency
+            prm = None
 
             dataset = get_dataset(config)
             dataset = dataset.map(
@@ -200,7 +202,8 @@ def main():
             )
 
         elif config.score_method == "conf":
-            prm = load_prm(config)
+            # Confidence-based scoring doesn't need PRM model
+            prm = None
 
             dataset = get_dataset(config)
             dataset = dataset.map(
@@ -242,8 +245,10 @@ def main():
     else:
         keys = ["pred", "pred_randomg"]
 
+    # Use data_name from config instead of hardcoding "math"
+    data_name_for_eval = getattr(config, 'data_name', 'math')
     dataset, result = evaluate(
-        data_name="math", prompt_type=None, samples=dataset, pred_keys=keys
+        data_name=data_name_for_eval, prompt_type=None, samples=dataset, pred_keys=keys
     )
     dataset = Dataset.from_list(
         [
