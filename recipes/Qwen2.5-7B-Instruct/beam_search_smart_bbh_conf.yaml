@@ -1,0 +1,43 @@
+# BBH (Big-Bench Hard) Configuration for Confidence-based Correction Method
+# Optimized for challenging reasoning tasks using conf score method
+
+model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-7B-Instruct
+draft_model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct
+custom_chat_template: null
+filter_duplicates: true
+approach: beam_search
+search_batch_size: 1  # DO NOT CHANGE!
+num_iterations: 40
+seed: 0
+smart_search: true
+
+# Confidence-based method parameters
+n: 16
+beam_width: 4
+score_method: conf
+conf_strategy: probs_mean           # Default confidence strategy
+threshold: 0.9                      # Confidence threshold for triggering LLM correction
+temperature: 0.8
+top_p: 1.0
+
+# BBH dataset settings
+dataset_name: "lukaemon/bbh"
+dataset_split: "test"
+data_name: "bbh"
+dataset_start: 0
+dataset_end: 100                    # Adjust as needed (BBH has ~6500 examples across tasks)
+max_tokens: 4096
+
+# System prompt optimized for BBH reasoning tasks
+# BBH covers diverse reasoning tasks, so we use a general reasoning prompt
+system_prompt: "You are Qwen, created by Alibaba Cloud. You are a helpful assistant. Solve the reasoning problem efficiently and clearly:\n\n- For simple problems: Provide a concise solution.\n- For complex problems: Use step-by-step reasoning."
+
+# Baseline comparison settings (optional)
+run_slm_baseline: false             # Set to true to run SLM-only baseline
+run_random_baseline: false          # Set to true to run random correction baseline
+
+# Note: This configuration uses confidence-based scoring (conf)
+# which evaluates beam paths based on token probabilities
+# Optimized for complex reasoning tasks in BBH dataset
+
+

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=smart-multi
-#SBATCH --nodelist=scratchy
+#SBATCH --nodelist=penelope
 #SBATCH --partition=gpu
 #SBATCH --qos=gpu-small
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=192G
+#SBATCH --mem=128G
 #SBATCH --time=72:00:00
 #SBATCH --output=/storage/ukp/work/xie12/uncertainty-guided-reasoning/logs/slurm-%x-%j.out
 #SBATCH --error=/storage/ukp/work/xie12/uncertainty-guided-reasoning/logs/slurm-%x-%j.err
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 echo "=== Activating env ==="
-source /storage/ukp/work/xie12/miniconda3/bin/activate smart2
+source /storage/ukp/work/xie12/miniconda3/bin/activate smart_clean
 
 # ---------- Paths & caches ----------
 BASE=/mnt/beegfs/work/xie12
@@ -41,6 +41,9 @@ export MPLCONFIGDIR="$BASE/tmp/matplotlib"
 
 # 关闭 vLLM usage（避免去 ~ 写）
 export VLLM_NO_USAGE=1
+
+# 禁用 tokenizers 并行处理以避免与多进程冲突
+export TOKENIZERS_PARALLELISM=false
 
 # Load API tokens from environment variables or secret files (optional)
 # Priority: environment variables > secret files > continue without warning
@@ -78,9 +81,10 @@ END_OPTION=${2:-7}
 
 # 验证参数
 if ! [[ "$START_OPTION" =~ ^[0-9]+$ ]] || ! [[ "$END_OPTION" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: Both arguments must be numbers (0-9)" >&2
+  echo "ERROR: Both arguments must be numbers (0-13)" >&2
   echo "Usage: sbatch run_qwen_slurm_multi.sh [start_option] [end_option]" >&2
   echo "Example: sbatch run_qwen_slurm_multi.sh 5 9" >&2
+  echo "Available options: 0-13 (10=BBH+conf, 11=BBH+cocoa, 12=MBPP+conf, 13=MBPP+cocoa)" >&2
   exit 1
 fi
 
@@ -89,8 +93,8 @@ if [[ $START_OPTION -gt $END_OPTION ]]; then
   exit 1
 fi
 
-if [[ $START_OPTION -lt 0 ]] || [[ $END_OPTION -gt 9 ]]; then
-  echo "ERROR: Options must be between 0 and 9" >&2
+if [[ $START_OPTION -lt 0 ]] || [[ $END_OPTION -gt 13 ]]; then
+  echo "ERROR: Options must be between 0 and 13" >&2
   exit 1
 fi
 
@@ -107,12 +111,15 @@ for OPTION in $(seq $START_OPTION $END_OPTION); do
     3) CONFIG=recipes/Qwen2.5-1.5B-Instruct/best_of_n.yaml;       EXTRA=(--n=16 --beam_width=1 --score_method=prm) ;;
     4) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=1 --score_method=prm) ;;
     5) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=prm) ;;
-    6) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=conf) ;;
-    7) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=32 --uq_sampling_temperature=2.0 --score_method=cocoa_msp --uq_threshold=0.1) ;;
-    #8) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=20 --uq_sampling_temperature=2.0 --score_method=cocoa_ppl --uq_threshold=0.003) ;;
-    #9) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=16 --beam_width=20 --uq_sampling_temperature=2.0 --score_method=cocoa_entropy --uq_threshold=0.0008) ;;
-    8) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=16 --beam_width=32 --uq_sampling_temperature=2.0 --score_method=cocoa_msp --uq_threshold=0.1) ;;
-    *) echo "Unknown OPTION=$OPTION. Valid options are 0-9." >&2; exit 1 ;;
+    6) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=conf --dataset_start=0 --dataset_end=500) ;;
+    7) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=conf --dataset_start=0 --dataset_end=1000) ;;
+    8) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.1 --dataset_start=0 --dataset_end=500) ;;
+    9) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_mmlu_pro_optimized.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.1 --dataset_start=0 --dataset_end=1000) ;;
+    10) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_bbh_conf.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=conf --dataset_start=0 --dataset_end=100) ;;
+    11) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_bbh.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.1 --dataset_start=0 --dataset_end=100) ;;
+    12) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mbpp_conf.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=conf --dataset_start=0 --dataset_end=100) ;;
+    13) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_mbpp.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.1 --dataset_start=0 --dataset_end=100) ;;
+    *) echo "Unknown OPTION=$OPTION. Valid options are 0-13." >&2; exit 1 ;;
   esac
 
   echo "=== Using LOCAL cache at: $LOCAL ==="

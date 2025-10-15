@@ -497,11 +497,187 @@ def extract_theoremqa_answer(pred: str, answer_flag: bool = True):
     return pred
 
 
+def extract_bbh_answer(pred_str, bbh_subset=None):
+    """
+    Extract answer from BBH predictions based on subset type.
+    BBH has different answer formats for different subsets.
+    """
+    pred_str = pred_str.strip()
+    
+    # Define BBH subset categories
+    MULTIPLE_CHOICE_SUBSETS = {
+        'date_understanding', 'disambiguation_qa', 'geometric_shapes', 'hyperbaton',
+        'logical_deduction_five_objects', 'logical_deduction_seven_objects', 
+        'logical_deduction_three_objects', 'movie_recommendation', 'penguins_in_a_table',
+        'reasoning_about_colored_objects', 'ruin_names', 'salient_translation_error_detection',
+        'snarks', 'temporal_sequences', 'tracking_shuffled_objects_five_objects',
+        'tracking_shuffled_objects_seven_objects', 'tracking_shuffled_objects_three_objects'
+    }
+    
+    YES_NO_SUBSETS = {'causal_judgement', 'navigate', 'sports_understanding', 'web_of_lies'}
+    TRUE_FALSE_SUBSETS = {'boolean_expressions'}
+    VALID_INVALID_SUBSETS = {'formal_fallacies'}
+    NUMERIC_SUBSETS = {'multistep_arithmetic_two', 'object_counting'}
+    TEXT_SUBSETS = {'dyck_languages', 'word_sorting'}
+    
+    # For multiple choice questions, extract the option letter
+    if bbh_subset in MULTIPLE_CHOICE_SUBSETS:
+        # Try to extract answer after common triggers
+        triggers = ['final answer:', 'answer is', 'answer:', 'therefore,']
+        for trigger in triggers:
+            if trigger in pred_str.lower():
+                # Split and take the part after the trigger
+                parts = re.split(trigger, pred_str, flags=re.IGNORECASE)
+                if len(parts) > 1:
+                    answer_part = parts[-1]
+                    # Look for pattern like (A), (B), etc. - prioritize this
+                    match = re.search(r'\(([A-Z])\)', answer_part)
+                    if match:
+                        return f"({match.group(1)})"
+                    # Look for standalone letter
+                    match = re.search(r'\b([A-Z])\b', answer_part)
+                    if match:
+                        return f"({match.group(1)})"
+        
+        # Fallback: search the whole string for option letters
+        # First try to find pattern like (A)
+        matches = re.findall(r'\(([A-Z])\)', pred_str)
+        if matches:
+            return f"({matches[-1]})"  # Return the last match
+        
+        # Then try standalone capital letters
+        matches = re.findall(r'\b([A-Z])\b', pred_str)
+        if matches:
+            return f"({matches[-1]})"
+        
+        return ""
+    
+    # For Yes/No questions
+    elif bbh_subset in YES_NO_SUBSETS:
+        pred_lower = pred_str.lower()
+        # Extract after common answer triggers
+        if 'final answer' in pred_lower or 'therefore' in pred_lower:
+            parts = re.split(r'final answer|therefore', pred_str, flags=re.IGNORECASE)
+            search_text = parts[-1] if len(parts) > 1 else pred_str
+        else:
+            search_text = pred_str
+        
+        # Look for yes/no in the search text
+        if re.search(r'\byes\b', search_text, re.IGNORECASE):
+            return "Yes"
+        elif re.search(r'\bno\b', search_text, re.IGNORECASE):
+            return "No"
+        return ""
+    
+    # For True/False questions
+    elif bbh_subset in TRUE_FALSE_SUBSETS:
+        pred_lower = pred_str.lower()
+        if 'true' in pred_lower and 'false' not in pred_lower:
+            return "True"
+        elif 'false' in pred_lower:
+            return "False"
+        return ""
+    
+    # For valid/invalid questions
+    elif bbh_subset in VALID_INVALID_SUBSETS:
+        pred_lower = pred_str.lower()
+        if 'invalid' in pred_lower:
+            return "invalid"
+        elif 'valid' in pred_lower:
+            return "valid"
+        return ""
+    
+    # For numeric answers
+    elif bbh_subset in NUMERIC_SUBSETS:
+        # Extract the number from boxed or final answer
+        if "boxed" in pred_str:
+            ans = pred_str.split("boxed")[-1]
+            if ans and ans[0] == "{":
+                stack = 1
+                a = ""
+                for c in ans[1:]:
+                    if c == "{":
+                        stack += 1
+                        a += c
+                    elif c == "}":
+                        stack -= 1
+                        if stack == 0:
+                            break
+                        a += c
+                    else:
+                        a += c
+                return a.strip()
+        
+        # Try to extract from "final answer" or similar
+        if "final answer" in pred_str.lower():
+            parts = re.split(r'final answer', pred_str, flags=re.IGNORECASE)
+            search_text = parts[-1] if len(parts) > 1 else pred_str
+        else:
+            search_text = pred_str
+        
+        # Find the last number
+        numbers = re.findall(r'-?\d+\.?\d*', search_text.replace(',', ''))
+        if numbers:
+            return numbers[-1]
+        return ""
+    
+    # For text-based answers (dyck_languages, word_sorting)
+    elif bbh_subset in TEXT_SUBSETS:
+        # Extract from final answer or last line
+        if "final answer" in pred_str.lower():
+            parts = re.split(r'final answer', pred_str, flags=re.IGNORECASE)
+            answer = parts[-1].strip()
+        else:
+            # Take the last non-empty line
+            lines = [l.strip() for l in pred_str.split('\n') if l.strip()]
+            answer = lines[-1] if lines else pred_str
+        
+        # Clean up common prefixes - handle patterns like "is:", ":", etc.
+        answer = re.sub(r'^(is|are)?\s*[:：]\s*', '', answer, flags=re.IGNORECASE)
+        answer = re.sub(r'[.。]+$', '', answer)
+        
+        # For word_sorting, clean up quotes and commas
+        if bbh_subset == 'word_sorting':
+            # Remove quotes
+            answer = answer.replace('"', '').replace("'", '')
+            # Replace comma with space (for sorted word lists)
+            answer = answer.replace(',', ' ')
+            # Clean up multiple spaces
+            answer = re.sub(r'\s+', ' ', answer)
+        
+        return answer.strip()
+    
+    # Default: return as-is for unknown subsets
+    return pred_str.strip()
+
+
 def extract_answer(pred_str, data_name, use_last_number=True):
     pred_str = pred_str.replace("\u043a\u0438", "")
     if data_name in ["mmlu_stem", "mmlu_pro", "sat_math", "aqua", "gaokao2023"]:
         # Multiple choice questions
         return choice_answer_clean(pred_str)
+    
+    # BBH requires special handling - will be called separately with bbh_subset info
+    # This is handled in the evaluation code where bbh_subset is available
+    if data_name == "bbh":
+        # If we don't have bbh_subset info here, apply a general BBH extraction
+        # First try to extract multiple choice answer
+        if re.search(r'\([A-Z]\)', pred_str):
+            matches = re.findall(r'\(([A-Z])\)', pred_str)
+            if matches:
+                return f"({matches[-1]})"
+        # Then try Yes/No
+        elif re.search(r'\b(yes|no)\b', pred_str, re.IGNORECASE):
+            if re.search(r'\byes\b', pred_str, re.IGNORECASE):
+                return "Yes"
+            else:
+                return "No"
+        # Then try True/False
+        elif re.search(r'\b(true|false)\b', pred_str, re.IGNORECASE):
+            if 'true' in pred_str.lower() and 'false' not in pred_str.lower():
+                return "True"
+            elif 'false' in pred_str.lower():
+                return "False"
 
     if "final answer is $" in pred_str and "$. I hope" in pred_str:
         # minerva_math
@@ -572,7 +748,7 @@ def extract_answer(pred_str, data_name, use_last_number=True):
     return pred
 
 
-STRIP_EXCEPTIONS = ["carp_en", "minerva_math"]
+STRIP_EXCEPTIONS = ["carp_en", "minerva_math", "mbpp"]
 
 
 def parse_ground_truth(example: Dict[str, Any], data_name):
@@ -653,6 +829,12 @@ def parse_ground_truth(example: Dict[str, Any], data_name):
         "imo2024",
     ]:
         gt_cot, gt_ans = None, example["answer"]
+    elif data_name == "bbh":
+        gt_cot, gt_ans = None, example["target"]
+    elif data_name == "mbpp":
+        # MBPP (Mostly Basic Programming Problems)
+        # Ground truth is the reference code solution
+        gt_cot, gt_ans = None, example.get("answer", example.get("code", ""))
     else:
         raise NotImplementedError(f"`{data_name}`")
     # post process

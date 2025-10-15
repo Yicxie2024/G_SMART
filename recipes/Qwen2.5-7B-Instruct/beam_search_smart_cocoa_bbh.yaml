@@ -1,0 +1,46 @@
+# BBH (Big-Bench Hard) Configuration for CoCoA Method
+# Optimized for challenging reasoning tasks
+
+model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-7B-Instruct
+draft_model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct
+custom_chat_template: null
+filter_duplicates: true
+approach: beam_search
+search_batch_size: 1
+seed: 0
+smart_search: true
+n: 1
+
+# Optimized parameters for BBH (reasoning tasks)
+temperature: 0.8                    # Balanced temperature for reasoning
+uq_sampling_temperature: 1.2        # For CoCoA consistency calculation
+num_iterations: 40                  # Standard iterations for reasoning tasks
+beam_width: 16                      # Keep for CoCoA consistency calculation
+uq_threshold: 0.1                   # UQ threshold for triggering corrections
+top_k: 50
+use_default_beam_search: true
+score_method: cocoa_msp             # CoCoA Maximum Softmax Probability
+
+# Baseline comparison settings
+run_slm_baseline: true              # Run SLM-only baseline for comparison
+run_random_baseline: true           # Run random correction baseline for comparison
+
+# BBH dataset settings
+dataset_name: "lukaemon/bbh"
+dataset_split: "test"
+data_name: "bbh"
+dataset_start: 0
+dataset_end: 100                    # Adjust as needed (BBH has ~6500 examples across tasks)
+max_tokens: 4096
+
+# System prompt optimized for BBH reasoning tasks
+# BBH covers diverse reasoning tasks, so we use a general reasoning prompt
+system_prompt: "You are Qwen, created by Alibaba Cloud. You are a helpful assistant. Solve the reasoning problem efficiently and clearly:\n\n- For simple problems: Provide a concise solution.\n- For complex problems: Use step-by-step reasoning."
+
+# Note: This configuration is optimized for:
+# - Complex reasoning tasks in BBH
+# - Step-by-step logical reasoning
+# - CoCoA uncertainty quantification for reliable answers
+# - Comparison with SLM-only and random correction baselines
+
+

@@ -1,0 +1,43 @@
+# MBPP (Mostly Basic Programming Problems) Configuration for Confidence-based Method
+# Optimized for Python code generation tasks using conf score method
+
+model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-7B-Instruct
+draft_model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct
+custom_chat_template: null
+filter_duplicates: true
+approach: beam_search
+search_batch_size: 1  # DO NOT CHANGE!
+num_iterations: 40
+seed: 0
+smart_search: true
+
+# Confidence-based method parameters
+n: 16
+beam_width: 4
+score_method: conf
+conf_strategy: probs_mean           # Default confidence strategy
+threshold: 0.9                      # Confidence threshold for triggering LLM correction
+temperature: 0.8
+top_p: 1.0
+
+# MBPP dataset settings
+dataset_name: "mbpp"
+dataset_split: "test"
+data_name: "mbpp"
+dataset_start: 0
+dataset_end: 500                    # MBPP test set has 500 examples
+max_tokens: 2048                    # Code generation typically needs fewer tokens
+
+# System prompt optimized for Python code generation
+# Keep it concise - detailed format instructions are in the user prompt
+system_prompt: "You are Qwen, created by Alibaba Cloud. You are a helpful assistant specialized in Python programming. Provide clear reasoning for your approach and write clean, well-structured code following Python best practices."
+
+# Baseline comparison settings (optional)
+run_slm_baseline: false             # Set to true to run SLM-only baseline
+run_random_baseline: false          # Set to true to run random correction baseline
+
+# Note: This configuration uses confidence-based scoring (conf)
+# which evaluates beam paths based on token probabilities
+# Optimized for code generation tasks in MBPP dataset
+
+

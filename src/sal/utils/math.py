@@ -18,7 +18,7 @@ import random
 import signal
 from collections import defaultdict
 from multiprocessing import Manager
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List
 
 import numpy as np
 from latex2sympy2 import latex2sympy
@@ -103,15 +103,73 @@ def subsample_completions(x: Dict[str, List[Any]], n: int) -> Dict[str, List[Any
     }
 
 
+def extract_python_code_from_completion(completion: str) -> str:
+    """
+    Extract Python code from MBPP completion.
+    Handles various formats:
+    - Code blocks with ```python markers
+    - Plain code without markers
+    - Multiple code blocks (takes the last one for MBPP)
+    """
+    import re
+    
+    # Try to find code in markdown code blocks with python specifier
+    pattern = r'```python\s*(.*?)```'
+    matches = re.findall(pattern, completion, re.DOTALL)
+    
+    if matches:
+        # Return the last code block (most likely the final solution)
+        return matches[-1].strip()
+    
+    # Try without python specifier
+    pattern = r'```\s*(.*?)```'
+    matches = re.findall(pattern, completion, re.DOTALL)
+    
+    if matches:
+        # Return the last code block
+        return matches[-1].strip()
+    
+    # If no code blocks, try to extract function definition
+    # Look for def or class at the beginning of a line
+    lines = completion.split('\n')
+    code_lines = []
+    in_code = False
+    
+    for line in lines:
+        if line.strip().startswith('def ') or line.strip().startswith('class '):
+            in_code = True
+        if in_code:
+            code_lines.append(line)
+    
+    if code_lines:
+        return '\n'.join(code_lines).strip()
+    
+    # Last resort: return the whole text
+    return completion.strip()
+
+
 def extract_completion_answers(
     x: Dict[str, List[Any]], n: int | None = None
 ) -> Dict[str, List[str]]:
-    if n is None:
-        return {"preds": [extract_answer(p, "math") for p in x["completions"]]}
+    # Check if this is an MBPP dataset (has task_id or code field)
+    is_mbpp = 'task_id' in x or ('answer' in x and 'def ' in str(x.get('answer', '')))
+    
+    if is_mbpp:
+        # For MBPP, extract Python code from completions
+        if n is None:
+            return {"preds": [extract_python_code_from_completion(p) for p in x["completions"]]}
+        else:
+            return {
+                f"preds@{n}": [extract_python_code_from_completion(p) for p in x[f"completions@{n}"]]
+            }
     else:
-        return {
-            f"preds@{n}": [extract_answer(p, "math") for p in x[f"completions@{n}"]]
-        }
+        # For math datasets, extract answers
+        if n is None:
+            return {"preds": [extract_answer(p, "math") for p in x["completions"]]}
+        else:
+            return {
+                f"preds@{n}": [extract_answer(p, "math") for p in x[f"completions@{n}"]]
+            }
 
 
 def compute_naive_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, List[str]]:
@@ -120,22 +178,44 @@ def compute_naive_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, List[str]]:
     preds = [
         (p, s) for p, s in sorted(zip(preds, scores), key=lambda x: x[1], reverse=True)
     ]
-    return {f"pred_naive@{n}": "\\boxed{" + preds[0][0] + "}"}
+    # Only wrap in \boxed{} for math datasets, not for BBH or MBPP
+    answer = preds[0][0]
+    # Check if this is a BBH dataset (bbh_subset field exists) or MBPP dataset
+    if 'bbh_subset' in x or 'task_id' in x:
+        return {f"pred_naive@{n}": answer}
+    return {f"pred_naive@{n}": "\\boxed{" + answer + "}"}
 
 
 def compute_weighted_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, List[str]]:
     preds = x[f"preds@{n}"]
     scores = x[f"agg_scores@{n}"]
-    return {
-        f"pred_weighted@{n}": "\\boxed{"
-        + find_answer_with_largest_sum(preds, scores)
-        + "}"
-    }
+    # For MBPP, skip canonical form grouping and just use the highest scoring prediction
+    if 'task_id' in x:
+        # For code, don't use canonical form grouping, just pick highest score
+        max_idx = scores.index(max(scores))
+        answer = preds[max_idx]
+    else:
+        answer = find_answer_with_largest_sum(preds, scores)
+    # Only wrap in \boxed{} for math datasets, not for BBH or MBPP
+    if 'bbh_subset' in x or 'task_id' in x:
+        return {f"pred_weighted@{n}": answer}
+    return {f"pred_weighted@{n}": "\\boxed{" + answer + "}"}
 
 
 def compute_maj_pred(x: Dict[str, List[Any]], n: int) -> Dict[str, List[str]]:
     preds = x[f"preds@{n}"]
-    return {f"pred_maj@{n}": "\\boxed{" + find_majority_answer(preds) + "}"}
+    # For MBPP, use simple majority without canonical form
+    if 'task_id' in x:
+        # For code, use exact string matching for majority
+        from collections import Counter
+        counter = Counter(preds)
+        answer = counter.most_common(1)[0][0]
+    else:
+        answer = find_majority_answer(preds)
+    # Only wrap in \boxed{} for math datasets, not for BBH or MBPP
+    if 'bbh_subset' in x or 'task_id' in x:
+        return {f"pred_maj@{n}": answer}
+    return {f"pred_maj@{n}": "\\boxed{" + answer + "}"}
 
 
 def find_answer_with_largest_sum(answers: List[str], scores: List[float]) -> str:
@@ -260,7 +340,7 @@ def compute_pass_at_k(x, k):
 
 
 def compute_level(
-    x, metric: Literal["mean_score", "pass@1"], name: str, quintiles: List[float]
+    x, metric: str, name: str, quintiles: List[float]
 ) -> Dict[str, int]:
     """Computes the difficulty level (1-5) of a problem based on the given metric and quintiles.
 

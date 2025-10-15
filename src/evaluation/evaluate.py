@@ -5,10 +5,24 @@ from pebble import ProcessPool
 from concurrent.futures import TimeoutError
 
 from grader import math_equal_process
+from mbpp_grader import extract_python_code, mbpp_equal_process
 
-from parser import parse_ground_truth, extract_answer
+from parser import parse_ground_truth, extract_answer, extract_bbh_answer
 from utils import load_jsonl
 from python_executor import PythonExecutor
+
+
+def extract_answer_with_context(pred_str, data_name, sample=None):
+    """
+    Extract answer with additional context (e.g., bbh_subset for BBH dataset, MBPP code).
+    """
+    if data_name == "bbh" and sample and 'bbh_subset' in sample:
+        return extract_bbh_answer(pred_str, bbh_subset=sample['bbh_subset'])
+    elif data_name == "mbpp":
+        # For MBPP, extract Python code instead of math answer
+        return extract_python_code(pred_str)
+    else:
+        return extract_answer(pred_str, data_name)
 
 
 def get_result(samples: list=None, file_path: str=None):
@@ -69,115 +83,240 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
     for sample in samples:
         _, sample['gt'] = parse_ground_truth(sample, data_name)
         sample['metrics'] = pred_keys
-        sample['preds'] = [extract_answer(sample[pred_key], data_name) for pred_key in pred_keys] # TODO: should be fixed
+        sample['preds'] = [extract_answer_with_context(sample[pred_key], data_name, sample) for pred_key in pred_keys]
         
 
     # calculate scores for final prediction
-    params = [(idx, pred, sample['gt']) for idx, sample in enumerate(samples) for pred in sample['preds']]
-
-    scores = []
-    timeout_cnt = 0 
-
-    progress_bar = tqdm(total=len(params), desc="Extract preds for each completion")
-    for idx, pred, gt in params:
-        try:
-            result = math_equal_process((idx, pred, gt))
-            scores.append(result)
-        except TimeoutError as error:
-            print(error)
-            scores.append(False)
-            timeout_cnt += 1
-        except Exception as error:
-            print(error)
-            exit()
-        progress_bar.update(1)
-    progress_bar.close()
-    
-    # calculate scores for each completions
-    for sample in samples:
-        sample['pred_completions'] = [
-            extract_answer(completion, data_name) for completion in sample.get('completions', [])
-        ]
-    params = [
-        (idx, pred, sample['gt'])
-        for idx, sample in enumerate(samples)
-        for pred in sample['pred_completions']
-    ]
-    completion_scores = []
-    timeout_cnt = 0
-
-    progress_bar = tqdm(total=len(params), desc="Evaluate per-completion (baseline)")
-    for idx, pred, gt in params:
-        try:
-            result = math_equal_process((idx, pred, gt))
-            completion_scores.append(result)
-        except TimeoutError as error:
-            print(error)
-            completion_scores.append(False)
-            timeout_cnt += 1
-        except Exception as error:
-            print(error)
-            exit()
-        progress_bar.update(1)
-    progress_bar.close()
-
-    # if there are random completions_random, also evaluate the correctness of each completion
-    have_random_completions = 'completions_random' in samples[0]
-    if have_random_completions:
-        for sample in samples:
-            sample['pred_completions_random'] = [
-                extract_answer(c, data_name) for c in sample.get('completions_random', [])
-            ]
-        params_rand = [
-            (idx, pred, sample['gt'])
+    if data_name == "mbpp":
+        # For MBPP: evaluate extracted code using test cases
+        # pred is already extracted code, we need to execute it against test cases
+        params = [
+            (idx, sample[pred_key], sample)  # Use original pred (code), not extracted
             for idx, sample in enumerate(samples)
-            for pred in sample['pred_completions_random']
+            for pred_key in pred_keys
         ]
-        completion_scores_random = []
-        progress_bar = tqdm(total=len(params_rand), desc="Evaluate per-completion (random)")
-        for idx, pred, gt in params_rand:
+        
+        scores = []
+        timeout_cnt = 0 
+
+        progress_bar = tqdm(total=len(params), desc="Evaluate final predictions (MBPP)")
+        for idx, pred, sample in params:
             try:
-                result = math_equal_process((idx, pred, gt))
-                completion_scores_random.append(result)
+                result = mbpp_equal_process((idx, pred, sample))
+                scores.append(result)
             except TimeoutError as error:
                 print(error)
-                completion_scores_random.append(False)
+                scores.append(False)
+                timeout_cnt += 1
+            except Exception as error:
+                print(error)
+                print(f"Error in final prediction eval for sample {idx}: {error}")
+                scores.append(False)
+            progress_bar.update(1)
+        progress_bar.close()
+    else:
+        # For math/BBH: compare extracted answer with ground truth
+        params = [(idx, pred, sample['gt']) for idx, sample in enumerate(samples) for pred in sample['preds']]
+
+        scores = []
+        timeout_cnt = 0 
+
+        progress_bar = tqdm(total=len(params), desc="Extract preds for each completion")
+        for idx, pred, gt in params:
+            try:
+                result = math_equal_process((idx, pred, gt))
+                scores.append(result)
+            except TimeoutError as error:
+                print(error)
+                scores.append(False)
                 timeout_cnt += 1
             except Exception as error:
                 print(error)
                 exit()
             progress_bar.update(1)
         progress_bar.close()
+    
+    # calculate scores for each completions
+    # For MBPP, we evaluate using test cases instead of comparing predictions with ground truth
+    if data_name == "mbpp":
+        # For MBPP: use original completions and test cases
+        params = [
+            (idx, completion, sample)
+            for idx, sample in enumerate(samples)
+            for completion in sample.get('completions', [])
+        ]
+        completion_scores = []
+        timeout_cnt = 0
+
+        progress_bar = tqdm(total=len(params), desc="Evaluate per-completion (MBPP with test cases)")
+        for idx, completion, sample in params:
+            try:
+                result = mbpp_equal_process((idx, completion, sample))
+                completion_scores.append(result)
+            except TimeoutError as error:
+                print(error)
+                completion_scores.append(False)
+                timeout_cnt += 1
+            except Exception as error:
+                print(error)
+                print(f"Error evaluating sample {idx}: {error}")
+                completion_scores.append(False)
+            progress_bar.update(1)
+        progress_bar.close()
+        
+        # Also extract code for display purposes
+        for sample in samples:
+            sample['pred_completions'] = [
+                extract_answer_with_context(completion, data_name, sample) for completion in sample.get('completions', [])
+            ]
+    else:
+        # For math/BBH: extract answer and compare with ground truth
+        for sample in samples:
+            sample['pred_completions'] = [
+                extract_answer_with_context(completion, data_name, sample) for completion in sample.get('completions', [])
+            ]
+        params = [
+            (idx, pred, sample['gt'])
+            for idx, sample in enumerate(samples)
+            for pred in sample['pred_completions']
+        ]
+        completion_scores = []
+        timeout_cnt = 0
+
+        progress_bar = tqdm(total=len(params), desc="Evaluate per-completion (baseline)")
+        for idx, pred, gt in params:
+            try:
+                result = math_equal_process((idx, pred, gt))
+                completion_scores.append(result)
+            except TimeoutError as error:
+                print(error)
+                completion_scores.append(False)
+                timeout_cnt += 1
+            except Exception as error:
+                print(error)
+                exit()
+            progress_bar.update(1)
+        progress_bar.close()
+
+    # if there are random completions_random, also evaluate the correctness of each completion
+    have_random_completions = 'completions_random' in samples[0]
+    if have_random_completions:
+        if data_name == "mbpp":
+            # For MBPP: evaluate using test cases
+            params_rand = [
+                (idx, completion, sample)
+                for idx, sample in enumerate(samples)
+                for completion in sample.get('completions_random', [])
+            ]
+            completion_scores_random = []
+            progress_bar = tqdm(total=len(params_rand), desc="Evaluate per-completion (random, MBPP)")
+            for idx, completion, sample in params_rand:
+                try:
+                    result = mbpp_equal_process((idx, completion, sample))
+                    completion_scores_random.append(result)
+                except TimeoutError as error:
+                    print(error)
+                    completion_scores_random.append(False)
+                    timeout_cnt += 1
+                except Exception as error:
+                    print(error)
+                    print(f"Error evaluating random sample {idx}: {error}")
+                    completion_scores_random.append(False)
+                progress_bar.update(1)
+            progress_bar.close()
+            
+            # Extract code for display
+            for sample in samples:
+                sample['pred_completions_random'] = [
+                    extract_answer_with_context(c, data_name, sample) for c in sample.get('completions_random', [])
+                ]
+        else:
+            # For math/BBH: extract answer and compare
+            for sample in samples:
+                sample['pred_completions_random'] = [
+                    extract_answer_with_context(c, data_name, sample) for c in sample.get('completions_random', [])
+                ]
+            params_rand = [
+                (idx, pred, sample['gt'])
+                for idx, sample in enumerate(samples)
+                for pred in sample['pred_completions_random']
+            ]
+            completion_scores_random = []
+            progress_bar = tqdm(total=len(params_rand), desc="Evaluate per-completion (random)")
+            for idx, pred, gt in params_rand:
+                try:
+                    result = math_equal_process((idx, pred, gt))
+                    completion_scores_random.append(result)
+                except TimeoutError as error:
+                    print(error)
+                    completion_scores_random.append(False)
+                    timeout_cnt += 1
+                except Exception as error:
+                    print(error)
+                    exit()
+                progress_bar.update(1)
+            progress_bar.close()
     else:
         completion_scores_random = None
 
     # if there are completions_slm, also evaluate the correctness of each completion
     have_slm_completions = 'completions_slm' in samples[0]
     if have_slm_completions:
-        for sample in samples:
-            sample['pred_completions_slm'] = [
-                extract_answer(c, data_name) for c in sample.get('completions_slm', [])
+        if data_name == "mbpp":
+            # For MBPP: evaluate using test cases
+            params_slm = [
+                (idx, completion, sample)
+                for idx, sample in enumerate(samples)
+                for completion in sample.get('completions_slm', [])
             ]
-        params_slm = [
-            (idx, pred, sample['gt'])
-            for idx, sample in enumerate(samples)
-            for pred in sample['pred_completions_slm']
-        ]
-        completion_scores_slm = []
-        progress_bar = tqdm(total=len(params_slm), desc="Evaluate per-completion (slm-only)")
-        for idx, pred, gt in params_slm:
-            try:
-                result = math_equal_process((idx, pred, gt))
-                completion_scores_slm.append(result)
-            except TimeoutError as error:
-                print(error)
-                completion_scores_slm.append(False)
-                timeout_cnt += 1
-            except Exception as error:
-                print(error)
-                exit()
-            progress_bar.update(1)
-        progress_bar.close()
+            completion_scores_slm = []
+            progress_bar = tqdm(total=len(params_slm), desc="Evaluate per-completion (slm-only, MBPP)")
+            for idx, completion, sample in params_slm:
+                try:
+                    result = mbpp_equal_process((idx, completion, sample))
+                    completion_scores_slm.append(result)
+                except TimeoutError as error:
+                    print(error)
+                    completion_scores_slm.append(False)
+                    timeout_cnt += 1
+                except Exception as error:
+                    print(error)
+                    print(f"Error evaluating slm sample {idx}: {error}")
+                    completion_scores_slm.append(False)
+                progress_bar.update(1)
+            progress_bar.close()
+            
+            # Extract code for display
+            for sample in samples:
+                sample['pred_completions_slm'] = [
+                    extract_answer_with_context(c, data_name, sample) for c in sample.get('completions_slm', [])
+                ]
+        else:
+            # For math/BBH: extract answer and compare
+            for sample in samples:
+                sample['pred_completions_slm'] = [
+                    extract_answer_with_context(c, data_name, sample) for c in sample.get('completions_slm', [])
+                ]
+            params_slm = [
+                (idx, pred, sample['gt'])
+                for idx, sample in enumerate(samples)
+                for pred in sample['pred_completions_slm']
+            ]
+            completion_scores_slm = []
+            progress_bar = tqdm(total=len(params_slm), desc="Evaluate per-completion (slm-only)")
+            for idx, pred, gt in params_slm:
+                try:
+                    result = math_equal_process((idx, pred, gt))
+                    completion_scores_slm.append(result)
+                except TimeoutError as error:
+                    print(error)
+                    completion_scores_slm.append(False)
+                    timeout_cnt += 1
+                except Exception as error:
+                    print(error)
+                    exit()
+                progress_bar.update(1)
+            progress_bar.close()
     else:
         completion_scores_slm = None
 

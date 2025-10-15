@@ -1,0 +1,46 @@
+# MBPP (Mostly Basic Programming Problems) Configuration for CoCoA Method
+# Optimized for Python code generation tasks
+
+model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-7B-Instruct
+draft_model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct
+custom_chat_template: null
+filter_duplicates: true
+approach: beam_search
+search_batch_size: 1
+seed: 0
+smart_search: true
+n: 1
+
+# Optimized parameters for MBPP (code generation tasks)
+temperature: 0.8                    # Balanced temperature for code generation
+uq_sampling_temperature: 1.2        # For CoCoA consistency calculation
+num_iterations: 40                  # Standard iterations for code tasks
+beam_width: 16                      # Keep for CoCoA consistency calculation
+uq_threshold: 0.1                   # UQ threshold for triggering corrections
+top_k: 50
+use_default_beam_search: true
+score_method: cocoa_msp             # CoCoA Maximum Softmax Probability
+
+# Baseline comparison settings
+run_slm_baseline: true              # Run SLM-only baseline for comparison
+run_random_baseline: true           # Run random correction baseline for comparison
+
+# MBPP dataset settings
+dataset_name: "mbpp"
+dataset_split: "test"
+data_name: "mbpp"
+dataset_start: 0
+dataset_end: 500                    # MBPP test set has 500 examples
+max_tokens: 2048                    # Code generation typically needs fewer tokens
+
+# System prompt optimized for Python code generation
+# Keep it concise - detailed format instructions are in the user prompt
+system_prompt: "You are Qwen, created by Alibaba Cloud. You are a helpful assistant specialized in Python programming. Provide clear reasoning for your approach and write clean, well-structured code following Python best practices."
+
+# Note: This configuration is optimized for:
+# - Python code generation tasks in MBPP
+# - Functional correctness with test case validation
+# - CoCoA uncertainty quantification for reliable code
+# - Comparison with SLM-only and random correction baselines
+
+
