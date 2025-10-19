@@ -81,10 +81,10 @@ END_OPTION=${2:-7}
 
 # 验证参数
 if ! [[ "$START_OPTION" =~ ^[0-9]+$ ]] || ! [[ "$END_OPTION" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: Both arguments must be numbers (0-13)" >&2
-  echo "Usage: sbatch run_qwen_slurm_multi.sh [start_option] [end_option]" >&2
-  echo "Example: sbatch run_qwen_slurm_multi.sh 5 9" >&2
-  echo "Available options: 0-13 (10=BBH+conf, 11=BBH+cocoa, 12=MBPP+conf, 13=MBPP+cocoa)" >&2
+  echo "ERROR: Both arguments must be numbers (0-15)" >&2
+  echo "Usage: sbatch run_slurm_multi.sh [start_option] [end_option]" >&2
+  echo "Example: sbatch run_slurm_multi.sh 5 9" >&2
+  echo "Available options: 0-15 (10=BBH+conf, 11=BBH+cocoa, 12=MBPP+conf, 13=MBPP+cocoa, 14=Llama cocoa default, 15=Llama conf sample)" >&2
   exit 1
 fi
 
@@ -93,8 +93,8 @@ if [[ $START_OPTION -gt $END_OPTION ]]; then
   exit 1
 fi
 
-if [[ $START_OPTION -lt 0 ]] || [[ $END_OPTION -gt 13 ]]; then
-  echo "ERROR: Options must be between 0 and 13" >&2
+if [[ $START_OPTION -lt 0 ]] || [[ $END_OPTION -gt 15 ]]; then
+  echo "ERROR: Options must be between 0 and 15" >&2
   exit 1
 fi
 
@@ -119,7 +119,9 @@ for OPTION in $(seq $START_OPTION $END_OPTION); do
     11) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_bbh.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.1 --dataset_start=0 --dataset_end=100) ;;
     12) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mbpp_conf.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=conf --dataset_start=0 --dataset_end=100) ;;
     13) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_mbpp.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.1 --dataset_start=0 --dataset_end=100) ;;
-    *) echo "Unknown OPTION=$OPTION. Valid options are 0-13." >&2; exit 1 ;;
+    14) CONFIG=recipes/Llama-3.1-8B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=4 --score_method=conf --dataset_start=0 --dataset_end=500 --max_tokens=4096) ;;
+    15) CONFIG=recipes/Llama-3.1-8B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.1 --dataset_start=0 --dataset_end=500 --max_tokens=4096) ;;
+    *) echo "Unknown OPTION=$OPTION. Valid options are 0-15." >&2; exit 1 ;;
   esac
 
   echo "=== Using LOCAL cache at: $LOCAL ==="
