@@ -11,8 +11,7 @@ smart_search: true
 n: 1
 beam_width: 16
 uq_threshold: 0.1
-uq_sampling_temperature: 1.5
-top_k: 50
+uq_sampling_temperature: 0.8
 use_default_beam_search: true
 score_method: cocoa_msp
 dataset_start: 0

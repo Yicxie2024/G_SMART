@@ -33,7 +33,7 @@ from .utils import (
 )
 
 logger = logging.getLogger()
-from sal.utils.score import aggregate_scores, calculate_confidence_score
+from sal.utils.score import aggregate_scores, calculate_confidence_score, calculate_perplexity_score
 
 from transformers import AutoTokenizer
 
@@ -175,7 +175,13 @@ def _beam_search(
 
         conf_scores = []
         for output in [o for r in responses for o in r.outputs]:
-            conf_scores.append([calculate_confidence_score(output.logprobs)])
+            if config.score_method == "conf":
+                conf_scores.append([calculate_confidence_score(output.logprobs)])
+            elif config.score_method == "perplexity":
+                conf_scores.append([calculate_perplexity_score(output.logprobs)])
+            else:
+                # Default to confidence score for backward compatibility
+                conf_scores.append([calculate_confidence_score(output.logprobs)])
         # order of likelihood_score, likelihood_mean_score, probs_mean_score
 
         conf_agg_scores = [[score[0][-1]] for score in conf_scores]  # probs_mean_score

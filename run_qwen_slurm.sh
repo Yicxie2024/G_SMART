@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=smart
-#SBATCH --nodelist=scratchy
+#SBATCH --nodelist=rubeus
 #SBATCH --partition=gpu
 #SBATCH --qos=gpu-small
 #SBATCH --gres=gpu:1
@@ -93,6 +93,7 @@ case "$OPTION" in
   8) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.1 --dataset_start=0 --dataset_end=100) ;;
   9) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa.yaml; EXTRA=(--n=1 --beam_width=16 --uq_sampling_temperature=1.2 --score_method=cocoa_msp --uq_threshold=0.1) ;;
   10) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_mmlu_pro_optimized.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.1) ;;
+  11) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=16 --beam_width=1 --score_method=perplexity --dataset_start=0 --dataset_end=100 --threshold=1.5) ;;
   *) echo "Unknown OPTION=$OPTION. Valid options are 0-11." >&2; exit 1 ;;
 esac
 

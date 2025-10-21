@@ -33,7 +33,7 @@ from .utils import (
 )
 
 logger = logging.getLogger()
-from sal.utils.score import aggregate_scores, calculate_confidence_score
+from sal.utils.score import aggregate_scores, calculate_confidence_score, calculate_perplexity_score
 
 from transformers import AutoTokenizer
 
@@ -158,7 +158,13 @@ def _beam_search(
         # Confidence scores based on token logprobs
         conf_scores = []
         for output in [o for r in responses for o in r.outputs]:
-            conf_scores.append([calculate_confidence_score(output.logprobs)])
+            if config.score_method == "conf":
+                conf_scores.append([calculate_confidence_score(output.logprobs)])
+            elif config.score_method == "perplexity":
+                conf_scores.append([calculate_perplexity_score(output.logprobs)])
+            else:
+                # Default to confidence score for backward compatibility
+                conf_scores.append([calculate_confidence_score(output.logprobs)])
 
         conf_agg_scores = [[score[0][-1]] for score in conf_scores]
 
@@ -182,7 +188,10 @@ def _beam_search(
             break
 
         # SMART single-beam correction: if confidence below threshold, ask llm to correct
-        need_correction = conf_agg_scores and conf_agg_scores[0][0] < config.threshold
+        if config.score_method == "conf":
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] < config.threshold
+        elif config.score_method == "perplexity":
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.threshold
         if not need_correction:
             continue
 

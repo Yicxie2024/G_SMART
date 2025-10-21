@@ -97,6 +97,8 @@ def main():
     approach_suffix = "_smart" if config.smart_search else ""
     if config.score_method == "conf":
         approach_suffix += "_conf"
+    elif config.score_method == "perplexity":
+        approach_suffix += "_conf"  # perplexity uses the same approach as conf
     elif config.score_method.startswith("cocoa"):
         approach_suffix += "_cocoa" if not getattr(config, 'use_default_beam_search', False) else "_cocoa_default"
     approach_name = config.approach + approach_suffix
@@ -111,7 +113,7 @@ def main():
         "\nUsing "
         + ("SMART" if config.smart_search else "Baseline")
         + " search.\nUsing "
-        + ("Confidence" if config.score_method == "conf" else "Cocoa" if config.score_method == "cocoa" else "PRM")
+        + ("Confidence" if config.score_method == "conf" else "Perplexity" if config.score_method == "perplexity" else "Cocoa" if config.score_method.startswith("cocoa") else "PRM")
         + " based score.\n"
     )
     if config.smart_search:
@@ -164,6 +166,19 @@ def main():
             )
         elif config.score_method.startswith("cocoa"):
             # CoCoA methods don't need PRM model - they use semantic consistency
+            prm = None
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "slm": slm, "prm": prm, "llm": llm},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
+        elif config.score_method == "perplexity":
+            # Perplexity-based scoring doesn't need PRM model
             prm = None
 
             dataset = get_dataset(config)

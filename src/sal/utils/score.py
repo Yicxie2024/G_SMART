@@ -56,6 +56,39 @@ def calculate_confidence_score(answer_tokens_logprobs_list):
     return [likelihood_score, likelihood_mean_score, probs_mean_score]
 
 
+def calculate_perplexity_score(answer_tokens_logprobs_list):
+    """
+    answer_tokens_logprobs_list에서 perplexity를 계산하는 함수.
+    Perplexity = exp(-mean(log_prob)) = exp(-log_likelihood / T)
+
+    Args:
+        answer_tokens_logprobs_list (list of dict): [{token_id: Logprob(logprob=value, ...)}, {...}, ...]
+
+    Returns:
+        list: [perplexity, normalized_perplexity, token_perplexity]
+        * perplexity: exp(-log_likelihood) = 1/likelihood
+        * normalized_perplexity: exp(-log_likelihood / T) = perplexity^(1/T)
+        * token_perplexity: exp(-mean(log_prob_per_token))
+    """
+    if not answer_tokens_logprobs_list:
+        return [float('inf'), float('inf'), float('inf')]
+    
+    log_likelihood_of_completion = sum(next(iter(logprob.values())).logprob for logprob in answer_tokens_logprobs_list)
+    
+    # Standard perplexity: exp(-log_likelihood)
+    perplexity_score = np.exp(-log_likelihood_of_completion)
+    
+    T = len(answer_tokens_logprobs_list)
+    # Normalized perplexity: exp(-log_likelihood / T)
+    normalized_perplexity_score = np.exp(-log_likelihood_of_completion / T)
+    
+    # Token-level perplexity: exp(-mean(log_prob_per_token))
+    token_logprobs = [next(iter(logprob.values())).logprob for logprob in answer_tokens_logprobs_list]
+    token_perplexity_score = np.exp(-np.mean(token_logprobs))
+    
+    return [perplexity_score, normalized_perplexity_score, token_perplexity_score]
+
+
 def aggregate_scores(
     scores: list[float], agg_strategy: Literal["min", "prod", "last"]
 ) -> float:

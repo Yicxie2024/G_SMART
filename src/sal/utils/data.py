@@ -250,6 +250,8 @@ def save_dataset(dataset, config):
                 folder_name = "smart_prm"
             elif config.score_method == 'conf':
                 folder_name = "smart_conf"
+            elif config.score_method == 'perplexity':
+                folder_name = "smart_perplexity"
             # if score_methode starts with cocoa, then folder_name is smart_cocoa
             elif config.score_method.startswith('cocoa'):
                 folder_name = "smart_cocoa"
@@ -258,7 +260,8 @@ def save_dataset(dataset, config):
                 folder_name = "base_prm"
             elif config.score_method == 'conf':
                 folder_name = "base_conf"
-        
+            elif config.score_method == 'perplexity':
+                folder_name = "base_perplexity"
         # Name the appoarch in likelihood score
         if config.beam_width == 1:
             approach_fn = "best_of_n"
