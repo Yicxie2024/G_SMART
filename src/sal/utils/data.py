@@ -252,6 +252,12 @@ def save_dataset(dataset, config):
                 folder_name = "smart_conf"
             elif config.score_method == 'perplexity':
                 folder_name = "smart_perplexity"
+            elif config.score_method == 'msp':
+                folder_name = "smart_msp"
+            elif config.score_method == 'top2_margin':
+                folder_name = "smart_margin"
+            elif config.score_method == 'token_entropy':
+                folder_name = "smart_token_entropy"
             # if score_methode starts with cocoa, then folder_name is smart_cocoa
             elif config.score_method.startswith('cocoa'):
                 folder_name = "smart_cocoa"
@@ -262,6 +268,12 @@ def save_dataset(dataset, config):
                 folder_name = "base_conf"
             elif config.score_method == 'perplexity':
                 folder_name = "base_perplexity"
+            elif config.score_method == 'msp':
+                folder_name = "base_msp"
+            elif config.score_method == 'top2_margin':
+                folder_name = "base_margin"
+            elif config.score_method == 'token_entropy':
+                folder_name = "base_token_entropy"
         # Name the appoarch in likelihood score
         if config.beam_width == 1:
             approach_fn = "best_of_n"

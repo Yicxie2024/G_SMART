@@ -15,7 +15,6 @@
 
 
 import math
-from typing import Literal
 
 from datasets import Dataset
 from tqdm import tqdm
@@ -90,7 +89,7 @@ def calculate_perplexity_score(answer_tokens_logprobs_list):
 
 
 def aggregate_scores(
-    scores: list[float], agg_strategy: Literal["min", "prod", "last"]
+    scores: list[float], agg_strategy: str
 ) -> float:
     # Handle case where scores is already a single float (already aggregated)
     if isinstance(scores, (int, float)):
@@ -232,3 +231,161 @@ def calculate_cocoa_uq_scores(
     cocoa_entropy = float(base_entropy * mean_dissim)
 
     return cocoa_msp, cocoa_ppl, cocoa_entropy
+
+
+from typing import List, Dict, Any, Tuple
+import numpy as np
+
+# -----------------------------
+# 2) Top-2 margin（步级前两大概率差）
+# -----------------------------
+def calculate_top2_margin_scores(
+    beam_logprobs_list: List[List[Dict[int, Any]]]
+) -> Tuple[float, float, List[float]]:
+    """
+    基于第一条 beam（y*）计算每步的 top-2 margin: margin_t = p1 - p2
+    返回:
+      (min_margin, mean_margin, margins_per_step)
+    说明:
+      - 若某步只有一个候选概率，则视为 p2=0，margin = p1
+      - 若该步不存在有限 logprob，跳过
+    """
+    if not beam_logprobs_list or not isinstance(beam_logprobs_list[0], list):
+        return 0.0, 0.0, []
+
+    y_star_steps = beam_logprobs_list[0]
+    margins = []
+    for step_dict in y_star_steps:
+        try:
+            lps = np.array([float(v.logprob) for v in step_dict.values()], dtype=float)
+            lps = lps[np.isfinite(lps)]
+            if lps.size == 0:
+                continue
+            if lps.size == 1:
+                p1 = float(np.exp(lps[0]))
+                margins.append(max(p1 - 0.0, 0.0))
+            else:
+                # 取前两大 logprob -> 概率差
+                idx = np.argpartition(-lps, 1)[:2]
+                top2 = np.sort(lps[idx])[::-1]  # [lp1, lp2] 降序排列
+                p1, p2 = float(np.exp(top2[0])), float(np.exp(top2[1]))
+                margins.append(max(p1 - p2, 0.0))
+        except Exception:
+            continue
+
+    if not margins:
+        return 0.0, 0.0, []
+    return float(np.min(margins)), float(np.mean(margins)), margins
+
+
+
+# -----------------------------
+# 4) MSP (Maximum Softmax Probability) 不确定性评分
+# -----------------------------
+def calculate_msp_scores(
+    beam_logprobs_list: List[List[Dict[int, Any]]]
+) -> Tuple[float, float, float]:
+    if not beam_logprobs_list or not isinstance(beam_logprobs_list[0], list):
+        return 1.0, 0.0, 0.0
+
+    y_star_steps = beam_logprobs_list[0]
+    if not y_star_steps:
+        return 1.0, 0.0, 0.0
+
+    # 计算序列的对数似然
+    logps = []
+    for step_dict in y_star_steps:
+        try:
+            lp = float(next(iter(step_dict.values())).logprob)
+            if np.isfinite(lp):
+                logps.append(lp)
+        except Exception:
+            continue
+
+    if not logps:
+        return 1.0, 0.0, 0.0
+
+    # 计算总的对数似然
+    log_likelihood = float(np.sum(logps))
+    
+    # 计算序列概率 p(y*|x) = exp(log_likelihood)
+    # 使用数值稳定的方法避免下溢
+    probability = float(np.exp(log_likelihood))
+    probability = float(np.clip(probability, 0.0, 1.0))
+    
+    
+    return log_likelihood, probability
+
+
+
+def calculate_token_entropy_scores(
+    beam_logprobs_list: List[List[Dict[int, Any]]],
+    *,
+    eps: float = 1e-12,
+) -> Tuple[float, float, List[float]]:
+    """
+    基于第一条 beam（y*）计算每一步的 token-level 熵:
+        H_t = -sum_j p_j * log p_j
+    其中 p_j 为该步 token 分布（对提供的候选做 logsumexp 归一化）。
+    
+    返回:
+        (max_entropy_over_steps, mean_entropy_over_steps, entropies_per_step)
+    说明:
+        - 若某步只包含一个有限的 logprob, 则该步熵为 0.0
+        - 若某步没有有限值，跳过该步
+        - 若整条序列没有可用步，则返回 (0.0, 0.0, [])
+    """
+    # 验证输入
+    if not beam_logprobs_list or not isinstance(beam_logprobs_list[0], list):
+        return 0.0, 0.0, []
+
+    y_star_steps = beam_logprobs_list[0]
+    if not y_star_steps:
+        return 0.0, 0.0, []
+
+    entropies: List[float] = []
+
+    for step_dict in y_star_steps:
+        # 收集该步的 logprob 值
+        try:
+            lps = np.array([float(v.logprob) for v in step_dict.values()], dtype=float)
+        except Exception:
+            # 结构异常直接跳过该步
+            continue
+
+        # 过滤非有限值
+        mask = np.isfinite(lps)
+        if not np.any(mask):
+            continue
+
+        lps = lps[mask]
+
+        # 若只有一个候选，熵为 0
+        if lps.size == 1:
+            entropies.append(0.0)
+            continue
+
+        # 使用 logsumexp 做数值稳定的归一化
+        # p = softmax(lps)；H = -sum p * log p
+        lse = np.log(np.sum(np.exp(lps - np.max(lps)))) + np.max(lps)   # logsumexp
+        probs = np.exp(lps - lse)                                       # 归一化的概率
+        probs = np.clip(probs, 0.0, 1.0)
+        probs_sum = np.sum(probs)
+        if probs_sum <= eps:
+            # 极端情况下保护
+            continue
+        probs = probs / probs_sum
+
+        # H = -sum p * log p
+        # 用 log(probs + eps) 防止 log(0)
+        H = -float(np.sum(probs * np.log(probs + eps)))
+        entropies.append(H)
+
+    if not entropies:
+        return 0.0, 0.0, []
+
+    entropies = list(map(float, entropies))
+    max_entropy = float(np.max(entropies))
+    mean_entropy = float(np.mean(entropies))
+
+    return max_entropy, mean_entropy, entropies

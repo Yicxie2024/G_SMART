@@ -33,7 +33,14 @@ from .utils import (
 )
 
 logger = logging.getLogger()
-from sal.utils.score import aggregate_scores, calculate_confidence_score, calculate_perplexity_score
+from sal.utils.score import (
+    aggregate_scores, 
+    calculate_confidence_score, 
+    calculate_perplexity_score,
+    calculate_top2_margin_scores,
+    calculate_msp_scores,
+    calculate_token_entropy_scores
+)
 
 from transformers import AutoTokenizer
 
@@ -162,14 +169,64 @@ def _beam_search(
                 conf_scores.append([calculate_confidence_score(output.logprobs)])
             elif config.score_method == "perplexity":
                 conf_scores.append([calculate_perplexity_score(output.logprobs)])
+            elif config.score_method == "top2_margin":
+                # Top-2 margin method: use min margin as uncertainty score
+                min_margin, mean_margin, margins = calculate_top2_margin_scores([output.logprobs])
+                conf_scores.append([min_margin])
+            elif config.score_method == "msp":
+                # MSP method: use MSP score as uncertainty score
+                log_likelihood, probability = calculate_msp_scores([output.logprobs])
+                msp_score = 1.0 - probability  # MSP = 1 - p(y*|x)
+                conf_scores.append([msp_score])
+            elif config.score_method == "cocoa_msp":
+                # CoCoA MSP method: use base MSP score (simplified for single beam)
+                log_likelihood, probability = calculate_msp_scores([output.logprobs])
+                msp_score = 1.0 - probability  # MSP = 1 - p(y*|x)
+                conf_scores.append([msp_score])
+            elif config.score_method == "cocoa_ppl":
+                # CoCoA PPL method: use base PPL score (simplified for single beam)
+                perplexity_scores = calculate_perplexity_score(output.logprobs)
+                conf_scores.append([perplexity_scores[1]])  # Use normalized perplexity
+            elif config.score_method == "cocoa_entropy":
+                # CoCoA Entropy method: use base entropy score (simplified for single beam)
+                # Calculate step-wise entropy
+                step_entropies = []
+                for step_dict in output.logprobs:
+                    try:
+                        lp = np.array([v.logprob for v in step_dict.values()], dtype=float)
+                        lp = lp[np.isfinite(lp)]
+                        if len(lp) > 0:
+                            probs = np.exp(lp)
+                            probs = probs / np.sum(probs)  # Normalize
+                            entropy = -np.sum(probs * np.log(probs + 1e-12))
+                            step_entropies.append(entropy)
+                    except Exception:
+                        continue
+                avg_entropy = np.mean(step_entropies) if step_entropies else 0.0
+                conf_scores.append([avg_entropy])
+            elif config.score_method == "token_entropy":
+                # Token Entropy method: use base token entropy score (simplified for single beam)
+                max_entropy, mean_entropy, entropies = calculate_token_entropy_scores([output.logprobs])
+                conf_scores.append([mean_entropy])
             else:
                 # Default to confidence score for backward compatibility
                 conf_scores.append([calculate_confidence_score(output.logprobs)])
 
-        conf_agg_scores = [[score[0][-1]] for score in conf_scores]
+        # Handle different score formats
+        conf_agg_scores = []
+        for score in conf_scores:
+            if isinstance(score[0], (list, tuple)):
+                # For conf, perplexity methods that return lists
+                conf_agg_scores.append([score[0][-1]])
+            else:
+                # For step_nll, top2_margin methods that return single values
+                conf_agg_scores.append([score[0]])
 
         for beam, score in zip(active_beams, conf_scores, strict=True):
-            beam.all_scores.append(score[0][-1])
+            if isinstance(score[0], (list, tuple)):
+                beam.all_scores.append(score[0][-1])
+            else:
+                beam.all_scores.append(score[0])
 
         # Filter for incomplete beams for potential correction
         conf_agg_scores = [
@@ -189,9 +246,27 @@ def _beam_search(
 
         # SMART single-beam correction: if confidence below threshold, ask llm to correct
         if config.score_method == "conf":
-            need_correction = conf_agg_scores and conf_agg_scores[0][0] < config.threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] < config.uq_threshold
         elif config.score_method == "perplexity":
-            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
+        elif config.score_method == "top2_margin":
+            # For top2 margin, lower values indicate more uncertainty, so correct if below threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] < config.uq_threshold
+        elif config.score_method == "msp":
+            # For MSP, higher values indicate more uncertainty, so correct if above threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
+        elif config.score_method == "cocoa_msp":
+            # For CoCoA MSP, higher values indicate more uncertainty, so correct if above threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
+        elif config.score_method == "cocoa_ppl":
+            # For CoCoA PPL, higher values indicate more uncertainty, so correct if above threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
+        elif config.score_method == "cocoa_entropy":
+            # For CoCoA Entropy, higher values indicate more uncertainty, so correct if above threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
+        elif config.score_method == "token_entropy":
+            # For Token Entropy, higher values indicate more uncertainty, so correct if above threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
         if not need_correction:
             continue
 
@@ -873,14 +948,24 @@ def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: No
         # Random
         if run_random_baseline:
             beams_random = grouped_results_random[p]
-            completions_random = [b.current_text for b in beams_random]
-            scores_random = [b.all_scores for b in beams_random]
-            pred_random = completions_random[0] if len(completions_random) > 0 else ""
-            counts_random = [getattr(b, "llm_corrections", 0) for b in beams_random]
-            counts_random_preselected = [len(getattr(b, "pre_selected_correction_steps", [])) for b in beams_random]
-            times_random = [getattr(b, "completion_time", 0.0) for b in beams_random]
-            tokens_random = [getattr(b, "llm_correction_tokens", 0) for b in beams_random]
-            early_stop_flags = [getattr(b, "early_stop_unused_corrections", False) for b in beams_random]
+            if len(beams_random) > 0:
+                completions_random = [b.current_text for b in beams_random]
+                scores_random = [b.all_scores for b in beams_random]
+                pred_random = completions_random[0] if len(completions_random) > 0 else ""
+                counts_random = [getattr(b, "llm_corrections", 0) for b in beams_random]
+                counts_random_preselected = [len(getattr(b, "pre_selected_correction_steps", [])) for b in beams_random]
+                times_random = [getattr(b, "completion_time", 0.0) for b in beams_random]
+                tokens_random = [getattr(b, "llm_correction_tokens", 0) for b in beams_random]
+                early_stop_flags = [getattr(b, "early_stop_unused_corrections", False) for b in beams_random]
+            else:
+                completions_random = []
+                scores_random = []
+                pred_random = ""
+                counts_random = []
+                counts_random_preselected = []
+                times_random = []
+                tokens_random = []
+                early_stop_flags = []
 
             results["completions_random"].append(completions_random)
             results["pred_random"].append(pred_random)
@@ -895,6 +980,7 @@ def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: No
             results["pred_random"].append("")
             results["scores_random"].append([])
             results["correction_counts_random"].append([])
+            results["correction_counts_random_preselected"].append([])
             results["completion_times_random"].append([])
             results["llm_correction_tokens_random"].append([])
             results["early_stop_unused_corrections_random"].append([])

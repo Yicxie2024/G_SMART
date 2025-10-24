@@ -99,8 +99,14 @@ def main():
         approach_suffix += "_conf"
     elif config.score_method == "perplexity":
         approach_suffix += "_conf"  # perplexity uses the same approach as conf
+    elif config.score_method == "msp":
+        approach_suffix += "_conf"  # msp uses the same approach as conf
+    elif config.score_method == "top2_margin":
+        approach_suffix += "_conf"  # top2_margin uses the same approach as conf
     elif config.score_method.startswith("cocoa"):
         approach_suffix += "_cocoa" if not getattr(config, 'use_default_beam_search', False) else "_cocoa_default"
+    elif config.score_method == "token_entropy":
+        approach_suffix += "_conf"
     approach_name = config.approach + approach_suffix
 
     if approach_name not in APPROACHES:
@@ -109,11 +115,26 @@ def main():
     print("Approach name:", approach_name) 
 
     # log the search method and score method
+    score_method_names = {
+        "conf": "Confidence",
+        "perplexity": "Perplexity", 
+        "msp": "MSP",
+        "top2_margin": "Top-2 Margin",
+        "cocoa_msp": "CoCoA MSP",
+        "cocoa_ppl": "CoCoA PPL", 
+        "cocoa_entropy": "CoCoA Entropy",
+        "token_entropy": "Token Entropy",
+        "prm": "PRM"
+    }
+    score_name = score_method_names.get(config.score_method, "Unknown")
+    if config.score_method.startswith("cocoa") and config.score_method not in score_method_names:
+        score_name = "CoCoA"
+    
     print(
         "\nUsing "
         + ("SMART" if config.smart_search else "Baseline")
         + " search.\nUsing "
-        + ("Confidence" if config.score_method == "conf" else "Perplexity" if config.score_method == "perplexity" else "Cocoa" if config.score_method.startswith("cocoa") else "PRM")
+        + score_name
         + " based score.\n"
     )
     if config.smart_search:
@@ -190,6 +211,45 @@ def main():
                 desc="Running search",
                 load_from_cache_file=False,
             )
+        elif config.score_method == "msp":
+            # MSP-based scoring doesn't need PRM model
+            prm = None
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "slm": slm, "prm": prm, "llm": llm},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
+        elif config.score_method == "top2_margin":
+            # Top-2 margin-based scoring doesn't need PRM model
+            prm = None
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "slm": slm, "prm": prm, "llm": llm},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
+        elif config.score_method == "token_entropy":
+            # Token Entropy-based scoring doesn't need PRM model
+            prm = None
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "slm": slm, "prm": prm, "llm": llm},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
         else:
             raise ValueError(f"Invalid score method: {config.score_method}")
     else:
@@ -231,6 +291,32 @@ def main():
             )
         elif config.score_method.startswith("cocoa"):
             prm = load_prm(config)
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "llm": llm, "prm": prm},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
+        elif config.score_method == "msp":
+            # MSP-based scoring doesn't need PRM model
+            prm = None
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "llm": llm, "prm": prm},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
+        elif config.score_method == "top2_margin":
+            # Top-2 margin-based scoring doesn't need PRM model
+            prm = None
 
             dataset = get_dataset(config)
             dataset = dataset.map(
