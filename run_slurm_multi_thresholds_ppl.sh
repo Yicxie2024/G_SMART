@@ -109,13 +109,13 @@ for OPTION in $(seq $START_OPTION $END_OPTION); do
   echo "=== Running OPTION=$OPTION ==="
   
   case "$OPTION" in
-    0) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=conf --uq_threshold=0 --dataset_start=0 --dataset_end=50) ;;
-    1) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=top2_margin --uq_threshold=0 --dataset_start=0 --dataset_end=50) ;;
-    2) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=msp --uq_threshold=100 --dataset_start=0 --dataset_end=50) ;;
-    3) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=token_entropy --uq_threshold=100 --dataset_start=0 --dataset_end=50) ;;
-    4) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=100 --dataset_start=0 --dataset_end=50) ;;
-    5) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_ppl --uq_threshold=100 --dataset_start=0 --dataset_end=50) ;;
-    6) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_entropy --uq_threshold=100 --dataset_start=0 --dataset_end=50) ;;
+    0) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --uq_threshold=1.03 --dataset_start=51 --dataset_end=500) ;;
+    1) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --uq_threshold=1.06 --dataset_start=51 --dataset_end=500) ;;
+    2) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --uq_threshold=1.10 --dataset_start=51 --dataset_end=500) ;;
+    3) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --uq_threshold=1.20 --dataset_start=51 --dataset_end=500) ;;
+    4) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --uq_threshold=1.40 --dataset_start=51 --dataset_end=500) ;;
+    5) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --uq_threshold=1.70 --dataset_start=51 --dataset_end=500) ;;
+    6) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --uq_threshold=1.80 --dataset_start=51 --dataset_end=500) ;;
     *) echo "Unknown OPTION=$OPTION. Valid options are 0-7." >&2; exit 1 ;;
   esac
 

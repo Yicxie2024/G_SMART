@@ -843,6 +843,7 @@ def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: No
         "correction_counts": [],
         "completion_times_uq": [],
         "llm_correction_tokens_uq": [],
+        "smart_step": [],
         # SLM-only
         "completions_slm": [],
         "pred_slm": [],
@@ -874,6 +875,7 @@ def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: No
         counts_uq = [getattr(b, "llm_corrections", 0) for b in beams_uq]
         times_uq = [getattr(b, "completion_time", 0.0) for b in beams_uq]
         tokens_uq = [getattr(b, "llm_correction_tokens", 0) for b in beams_uq]
+        smart_steps_uq = [getattr(b, "smart_step", []) for b in beams_uq]
 
         results["completions"].append(completions_uq)
         results["pred"].append(pred_uq)
@@ -881,6 +883,7 @@ def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: No
         results["correction_counts"].append(counts_uq)
         results["completion_times_uq"].append(times_uq)
         results["llm_correction_tokens_uq"].append(tokens_uq)
+        results["smart_step"].append(smart_steps_uq)
 
         # SLM-only
         if run_slm_baseline:

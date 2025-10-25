@@ -897,6 +897,7 @@ def smart_beam_search_cocoa_default(examples, config: Config, slm: LLM, prm: PRM
         "correction_counts": [],
         "completion_times_uq": [],  # Timing for UQ-guided method
         "llm_correction_tokens_uq": [],  # LLM correction tokens for UQ-guided
+        "smart_step": [],
         # SLM-only results
         "completions_slm": [],
         "pred_slm": [],
@@ -929,7 +930,7 @@ def smart_beam_search_cocoa_default(examples, config: Config, slm: LLM, prm: PRM
         counts_uq = [getattr(b, "llm_corrections", 0) for b in beams_uq]
         times_uq = [getattr(b, "completion_time", 0.0) for b in beams_uq]
         tokens_uq = [getattr(b, "llm_correction_tokens", 0) for b in beams_uq]
-        
+        smart_steps_uq = [getattr(b, "smart_step", []) for b in beams_uq]
         # Store UQ-guided results
         results["completions"].append(completions_uq)
         results["pred"].append(pred_uq)
@@ -937,7 +938,7 @@ def smart_beam_search_cocoa_default(examples, config: Config, slm: LLM, prm: PRM
         results["correction_counts"].append(counts_uq)
         results["completion_times_uq"].append(times_uq)
         results["llm_correction_tokens_uq"].append(tokens_uq)
-        
+        results["smart_step"].append(smart_steps_uq)
         # SLM-only baseline
         if run_slm_baseline:
             beams_slm = grouped_results_slm[p]
@@ -981,6 +982,7 @@ def smart_beam_search_cocoa_default(examples, config: Config, slm: LLM, prm: PRM
             results["pred_random"].append("")
             results["scores_random"].append([])
             results["correction_counts_random"].append([])
+            results["correction_counts_random_preselected"].append([])
             results["completion_times_random"].append([])
             results["llm_correction_tokens_random"].append([])
             results["early_stop_unused_corrections_random"].append([])
