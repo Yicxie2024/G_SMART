@@ -109,7 +109,7 @@ for OPTION in $(seq $START_OPTION $END_OPTION); do
   echo "=== Running OPTION=$OPTION ==="
   
   case "$OPTION" in
-    0) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --uq_threshold=0.08 --dataset_start=0 --dataset_end=10) ;;
+    0) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --uq_threshold=0 --dataset_start=0 --dataset_end=10) ;;
     *) echo "Unknown OPTION=$OPTION. Valid options are 0-7." >&2; exit 1 ;;
   esac
 

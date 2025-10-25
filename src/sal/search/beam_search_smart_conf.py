@@ -178,34 +178,7 @@ def _beam_search(
             elif config.score_method == "msp":
                 # MSP method: use MSP score as uncertainty score
                 log_likelihood, probability = calculate_msp_scores([output.logprobs])
-                msp_score = 1.0 - probability  # MSP = 1 - p(y*|x)
-                conf_scores.append([msp_score])
-            elif config.score_method == "cocoa_msp":
-                # CoCoA MSP method: use base MSP score (simplified for single beam)
-                log_likelihood, probability = calculate_msp_scores([output.logprobs])
-                msp_score = 1.0 - probability  # MSP = 1 - p(y*|x)
-                conf_scores.append([msp_score])
-            elif config.score_method == "cocoa_ppl":
-                # CoCoA PPL method: use base PPL score (simplified for single beam)
-                perplexity, normalized_perplexity, token_perplexity = calculate_perplexity_score(output.logprobs)
-                conf_scores.append([normalized_perplexity])  # Use normalized perplexity
-            elif config.score_method == "cocoa_entropy":
-                # CoCoA Entropy method: use base entropy score (simplified for single beam)
-                # Calculate step-wise entropy
-                step_entropies = []
-                for step_dict in output.logprobs:
-                    try:
-                        lp = np.array([v.logprob for v in step_dict.values()], dtype=float)
-                        lp = lp[np.isfinite(lp)]
-                        if len(lp) > 0:
-                            probs = np.exp(lp)
-                            probs = probs / np.sum(probs)  # Normalize
-                            entropy = -np.sum(probs * np.log(probs + 1e-12))
-                            step_entropies.append(entropy)
-                    except Exception:
-                        continue
-                avg_entropy = np.mean(step_entropies) if step_entropies else 0.0
-                conf_scores.append([avg_entropy])
+                conf_scores.append([probability])
             elif config.score_method == "token_entropy":
                 # Token Entropy method: use base token entropy score (simplified for single beam)
                 max_entropy, mean_entropy, entropies = calculate_token_entropy_scores([output.logprobs])
@@ -247,15 +220,6 @@ def _beam_search(
             need_correction = conf_agg_scores and conf_agg_scores[0][0] < config.uq_threshold
         elif config.score_method == "msp":
             # For MSP, higher values indicate more uncertainty, so correct if above threshold
-            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
-        elif config.score_method == "cocoa_msp":
-            # For CoCoA MSP, higher values indicate more uncertainty, so correct if above threshold
-            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
-        elif config.score_method == "cocoa_ppl":
-            # For CoCoA PPL, higher values indicate more uncertainty, so correct if above threshold
-            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
-        elif config.score_method == "cocoa_entropy":
-            # For CoCoA Entropy, higher values indicate more uncertainty, so correct if above threshold
             need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
         elif config.score_method == "token_entropy":
             # For Token Entropy, higher values indicate more uncertainty, so correct if above threshold
@@ -900,8 +864,6 @@ def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: No
         "llm_correction_tokens_random": [],
         "early_stop_unused_corrections_random": [],
     }
-
-    tokenizer = slm.get_tokenizer()
 
     for p in problems:
         # UQ-guided results
