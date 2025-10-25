@@ -1,0 +1,156 @@
+=== Activating env ===
+Loaded HUGGINGFACE_HUB_TOKEN from secret file
+Info: WANDB_API_KEY not set. Logging may be limited.
+=== Running options 0 to 7 sequentially ===
+=== Running OPTION=0 ===
+=== Using LOCAL cache at: /mnt/beegfs/work/xie12/tmp ===
+=== Running: python scripts/test_time_compute.py recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml --n=1 --beam_width=16 --score_method=perplexity --uq_threshold=0.08 --dataset_start=0 --dataset_end=10 ===
+ANTLR runtime and generated code versions disagree: 4.9.3!=4.7.2
+ANTLR runtime and generated code versions disagree: 4.9.3!=4.7.2
+ANTLR runtime and generated code versions disagree: 4.9.3!=4.7.2
+ANTLR runtime and generated code versions disagree: 4.9.3!=4.7.2
+====================
+The number of available GPUs: 1
+Approach name: beam_search_smart_conf
+
+Using SMART search.
+Using Perplexity based score.
+
+Threshold: 0.9
+N: 1
+Beam width: 16
+====================
+INFO 10-25 20:39:43 llm_engine.py:237] Initializing an LLM engine (vdev) with config: model='/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct', speculative_config=None, tokenizer='/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, override_neuron_config=None, rope_scaling=None, rope_theta=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=8192, download_dir=None, load_format=LoadFormat.AUTO, tensor_parallel_size=1, pipeline_parallel_size=1, disable_custom_all_reduce=False, quantization=None, enforce_eager=False, kv_cache_dtype=auto, quantization_param_path=None, device_config=cuda, decoding_config=DecodingConfig(guided_decoding_backend='outlines'), observability_config=ObservabilityConfig(otlp_traces_endpoint=None, collect_model_forward_time=False, collect_model_execute_time=False), seed=0, served_model_name=/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct, use_v2_block_manager=True, num_scheduler_steps=1, chunked_prefill_enabled=False multi_step_stream_outputs=True, enable_prefix_caching=True, use_async_output_proc=True, use_cached_outputs=False, mm_processor_kwargs=None)
+INFO 10-25 20:39:51 model_runner.py:1060] Starting to load model /storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct...
+INFO 10-25 20:39:52 model_runner.py:1071] Loading model weights took 2.8875 GB
+INFO 10-25 20:39:52 gpu_executor.py:122] # GPU blocks: 62897, # CPU blocks: 9362
+INFO 10-25 20:39:52 gpu_executor.py:126] Maximum concurrency for 8192 tokens per request: 122.85x
+INFO 10-25 20:39:56 model_runner.py:1402] Capturing the model for CUDA graphs. This may lead to unexpected consequences if the model is not static. To run the model in eager mode, set 'enforce_eager=True' or use '--enforce-eager' in the CLI.
+INFO 10-25 20:39:56 model_runner.py:1406] CUDA graphs can take additional 1~3 GiB memory per GPU. If you are running out of memory, consider decreasing `gpu_memory_utilization` or enforcing eager mode. You can also reduce the `max_num_seqs` as needed to decrease memory usage.
+INFO 10-25 20:40:10 model_runner.py:1530] Graph capturing finished in 14 secs.
+[DEBUG] About to run approach_fn: beam_search_smart_conf
+[DEBUG] Dataset size before mapping: 10
+[DEBUG] First sample keys: dict_keys(['problem', 'solution', 'answer', 'subject', 'level', 'unique_id'])
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.1635444124241165]]
+[DEBUG] Assigning score 1.1635444124241165 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.1635444124241165]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.2720006939760164]]
+[DEBUG] Assigning score 1.2720006939760164 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.2720006939760164]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.1451622597894155]]
+[DEBUG] Assigning score 1.1451622597894155 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.1451622597894155]
+[DEBUG] Processing problem Convert the point $(0,3)$ in rectangular coordinat...
+[DEBUG] UQ beams count: 1
+[DEBUG] UQ scores: [[]]
+[DEBUG] UQ scores types: [<class 'list'>]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.0868569836170856]]
+[DEBUG] Assigning score 1.0868569836170856 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.0868569836170856]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.0665674916172325]]
+[DEBUG] Assigning score 1.0665674916172325 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.0665674916172325]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.6308488064859603]]
+[DEBUG] Assigning score 1.6308488064859603 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.6308488064859603]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.078676617106473]]
+[DEBUG] Assigning score 1.078676617106473 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.078676617106473]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.195257977312826]]
+[DEBUG] Assigning score 1.195257977312826 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.195257977312826]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.0636119307251122]]
+[DEBUG] Assigning score 1.0636119307251122 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.0636119307251122]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.0972100536162397]]
+[DEBUG] Assigning score 1.0972100536162397 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.0972100536162397]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.0009526032428429]]
+[DEBUG] Assigning score 1.0009526032428429 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.0009526032428429]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[2.1329357190299114]]
+[DEBUG] Assigning score 2.1329357190299114 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [2.1329357190299114]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.034264678739897]]
+[DEBUG] Assigning score 1.034264678739897 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.034264678739897]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.061454286014028]]
+[DEBUG] Assigning score 1.061454286014028 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.061454286014028]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.0059527998332682]]
+[DEBUG] Assigning score 1.0059527998332682 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.0059527998332682]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.282688194806829]]
+[DEBUG] Assigning score 1.282688194806829 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.282688194806829]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.002714742337341]]
+[DEBUG] Assigning score 1.002714742337341 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.002714742337341]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.177496778531927]]
+[DEBUG] Assigning score 1.177496778531927 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.177496778531927]
+[DEBUG] Processing responses, type: <class 'list'>, length: 1
+[DEBUG] First response type: <class 'vllm.outputs.RequestOutput'>
+[DEBUG] About to assign scores to beams. active_beams count: 1, conf_scores count: 1
+[DEBUG] conf_scores content: [[1.1815190558041417]]
+[DEBUG] Assigning score 1.1815190558041417 (type: <class 'numpy.float64'>) to beam 0
+[DEBUG] Beam 0 all_scores after append: [1.1815190558041417]
+[DEBUG] Processing problem Define
+\[p = \sum_{k = 1}^\infty \frac{1}{k^2} \qu...
+[DEBUG] UQ beams count: 1
+[DEBUG] UQ scores: [[1.1815190558041417]]
+[DEBUG] UQ scores types: [<class 'list'>]
