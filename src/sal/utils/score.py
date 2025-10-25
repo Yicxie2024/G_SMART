@@ -37,7 +37,7 @@ def calculate_confidence_score(answer_tokens_logprobs_list):
         answer_tokens_logprobs_list (list of dict): [{token_id: Logprob(logprob=value, ...)}, {...}, ...]
 
     Returns:
-        tuple: (log_likelihood, likelihood)
+        tuple: (likelihood, likelihood_mean, probs_mean)
     * mean : likelihood(norm)
     * sum할때 -> answer_tokens_logprobs_list의 갯수를 뽑을 수 있는데 = T, 
     각 generation hyperparameter=e 
@@ -52,7 +52,7 @@ def calculate_confidence_score(answer_tokens_logprobs_list):
     
     probs_mean_score = np.mean([np.exp(next(iter(logprob.values())).logprob) for logprob in answer_tokens_logprobs_list])
     
-    return [likelihood_score, likelihood_mean_score, probs_mean_score]
+    return likelihood_score, likelihood_mean_score, probs_mean_score
 
 
 def calculate_perplexity_score(answer_tokens_logprobs_list):
@@ -64,13 +64,11 @@ def calculate_perplexity_score(answer_tokens_logprobs_list):
         answer_tokens_logprobs_list (list of dict): [{token_id: Logprob(logprob=value, ...)}, {...}, ...]
 
     Returns:
-        list: [perplexity, normalized_perplexity, token_perplexity]
+        tuple: (perplexity, normalized_perplexity, token_perplexity)
         * perplexity: exp(-log_likelihood) = 1/likelihood
         * normalized_perplexity: exp(-log_likelihood / T) = perplexity^(1/T)
         * token_perplexity: exp(-mean(log_prob_per_token))
     """
-    if not answer_tokens_logprobs_list:
-        return [float('inf'), float('inf'), float('inf')]
     
     log_likelihood_of_completion = sum(next(iter(logprob.values())).logprob for logprob in answer_tokens_logprobs_list)
     
@@ -85,7 +83,7 @@ def calculate_perplexity_score(answer_tokens_logprobs_list):
     token_logprobs = [next(iter(logprob.values())).logprob for logprob in answer_tokens_logprobs_list]
     token_perplexity_score = np.exp(-np.mean(token_logprobs))
     
-    return [perplexity_score, normalized_perplexity_score, token_perplexity_score]
+    return perplexity_score, normalized_perplexity_score, token_perplexity_score
 
 
 def aggregate_scores(
@@ -169,8 +167,6 @@ def calculate_cocoa_uq_scores(
     Each base u is multiplied by semantic inconsistency:
       mean_i (1 - cosine_sim(embed(y*), embed(y^i))) for i >= 1 (exclude self).
     """
-    if not beam_logprobs_list or not isinstance(beam_logprobs_list[0], list):
-        return 0.0, 0.0, 0.0
 
     def _seq_token_ids(step_dict_list: List[Dict[int, Any]]) -> List[int]:
         return [next(iter(step.keys())) for step in step_dict_list]
@@ -250,8 +246,6 @@ def calculate_top2_margin_scores(
       - 若某步只有一个候选概率，则视为 p2=0，margin = p1
       - 若该步不存在有限 logprob，跳过
     """
-    if not beam_logprobs_list or not isinstance(beam_logprobs_list[0], list):
-        return 0.0, 0.0, []
 
     y_star_steps = beam_logprobs_list[0]
     margins = []
@@ -285,8 +279,6 @@ def calculate_top2_margin_scores(
 def calculate_msp_scores(
     beam_logprobs_list: List[List[Dict[int, Any]]]
 ) -> Tuple[float, float, float]:
-    if not beam_logprobs_list or not isinstance(beam_logprobs_list[0], list):
-        return 1.0, 0.0, 0.0
 
     y_star_steps = beam_logprobs_list[0]
     if not y_star_steps:
@@ -336,8 +328,6 @@ def calculate_token_entropy_scores(
         - 若整条序列没有可用步，则返回 (0.0, 0.0, [])
     """
     # 验证输入
-    if not beam_logprobs_list or not isinstance(beam_logprobs_list[0], list):
-        return 0.0, 0.0, []
 
     y_star_steps = beam_logprobs_list[0]
     if not y_star_steps:

@@ -166,9 +166,11 @@ def _beam_search(
         conf_scores = []
         for output in [o for r in responses for o in r.outputs]:
             if config.score_method == "conf":
-                conf_scores.append([calculate_confidence_score(output.logprobs)])
+                likelihood, likelihood_mean, probs_mean = calculate_confidence_score(output.logprobs)
+                conf_scores.append([likelihood_mean])  # Use normalized likelihood
             elif config.score_method == "perplexity":
-                conf_scores.append([calculate_perplexity_score(output.logprobs)])
+                perplexity, normalized_perplexity, token_perplexity = calculate_perplexity_score(output.logprobs)
+                conf_scores.append([normalized_perplexity])  # Use normalized perplexity
             elif config.score_method == "top2_margin":
                 # Top-2 margin method: use min margin as uncertainty score
                 min_margin, mean_margin, margins = calculate_top2_margin_scores([output.logprobs])
@@ -185,8 +187,8 @@ def _beam_search(
                 conf_scores.append([msp_score])
             elif config.score_method == "cocoa_ppl":
                 # CoCoA PPL method: use base PPL score (simplified for single beam)
-                perplexity_scores = calculate_perplexity_score(output.logprobs)
-                conf_scores.append([perplexity_scores[1]])  # Use normalized perplexity
+                perplexity, normalized_perplexity, token_perplexity = calculate_perplexity_score(output.logprobs)
+                conf_scores.append([normalized_perplexity])  # Use normalized perplexity
             elif config.score_method == "cocoa_entropy":
                 # CoCoA Entropy method: use base entropy score (simplified for single beam)
                 # Calculate step-wise entropy
@@ -210,23 +212,14 @@ def _beam_search(
                 conf_scores.append([mean_entropy])
             else:
                 # Default to confidence score for backward compatibility
-                conf_scores.append([calculate_confidence_score(output.logprobs)])
+                likelihood, likelihood_mean, probs_mean = calculate_confidence_score(output.logprobs)
+                conf_scores.append([likelihood_mean])
 
-        # Handle different score formats
-        conf_agg_scores = []
-        for score in conf_scores:
-            if isinstance(score[0], (list, tuple)):
-                # For conf, perplexity methods that return lists
-                conf_agg_scores.append([score[0][-1]])
-            else:
-                # For step_nll, top2_margin methods that return single values
-                conf_agg_scores.append([score[0]])
+        # All score methods now return single values, no need for format detection
+        conf_agg_scores = [[score[0]] for score in conf_scores]
 
         for beam, score in zip(active_beams, conf_scores, strict=True):
-            if isinstance(score[0], (list, tuple)):
-                beam.all_scores.append(score[0][-1])
-            else:
-                beam.all_scores.append(score[0])
+            beam.all_scores.append(score[0])
 
         # Filter for incomplete beams for potential correction
         conf_agg_scores = [
