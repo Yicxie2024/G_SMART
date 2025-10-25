@@ -164,6 +164,9 @@ def _beam_search(
 
         # Confidence scores based on token logprobs
         conf_scores = []
+        print(f"[DEBUG] Processing responses, type: {type(responses)}, length: {len(responses) if hasattr(responses, '__len__') else 'N/A'}")
+        print(f"[DEBUG] First response type: {type(responses[0]) if len(responses) > 0 else 'No responses'}")
+        
         for output in [o for r in responses for o in r.outputs]:
             if config.score_method == "conf":
                 likelihood, likelihood_mean, probs_mean = calculate_confidence_score(output.logprobs)
@@ -218,8 +221,13 @@ def _beam_search(
         # All score methods now return single values, no need for format detection
         conf_agg_scores = [[score[0]] for score in conf_scores]
 
+        print(f"[DEBUG] About to assign scores to beams. active_beams count: {len(active_beams)}, conf_scores count: {len(conf_scores)}")
+        print(f"[DEBUG] conf_scores content: {conf_scores}")
+        
         for beam, score in zip(active_beams, conf_scores, strict=True):
+            print(f"[DEBUG] Assigning score {score[0]} (type: {type(score[0])}) to beam {beam.index}")
             beam.all_scores.append(score[0])
+            print(f"[DEBUG] Beam {beam.index} all_scores after append: {beam.all_scores}")
 
         # Filter for incomplete beams for potential correction
         conf_agg_scores = [
@@ -913,6 +921,11 @@ def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: No
         times_uq = [getattr(b, "completion_time", 0.0) for b in beams_uq]
         tokens_uq = [getattr(b, "llm_correction_tokens", 0) for b in beams_uq]
 
+        print(f"[DEBUG] Processing problem {p[:50]}...")
+        print(f"[DEBUG] UQ beams count: {len(beams_uq)}")
+        print(f"[DEBUG] UQ scores: {scores_uq}")
+        print(f"[DEBUG] UQ scores types: {[type(s) for s in scores_uq]}")
+        
         results["completions"].append(completions_uq)
         results["pred"].append(pred_uq)
         results["scores"].append(scores_uq)

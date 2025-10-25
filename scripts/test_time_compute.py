@@ -203,6 +203,10 @@ def main():
             prm = None
 
             dataset = get_dataset(config)
+            print(f"[DEBUG] About to run approach_fn: {approach_name}")
+            print(f"[DEBUG] Dataset size before mapping: {len(dataset)}")
+            print(f"[DEBUG] First sample keys: {dataset[0].keys() if len(dataset) > 0 else 'No samples'}")
+            
             dataset = dataset.map(
                 approach_fn,
                 batched=True,
@@ -211,6 +215,10 @@ def main():
                 desc="Running search",
                 load_from_cache_file=False,
             )
+            
+            print(f"[DEBUG] Dataset size after mapping: {len(dataset)}")
+            print(f"[DEBUG] First sample keys after mapping: {dataset[0].keys() if len(dataset) > 0 else 'No samples'}")
+            print(f"[DEBUG] First sample scores after mapping: {dataset[0]['scores'] if 'scores' in dataset[0] else 'No scores'}")
         elif config.score_method == "msp":
             # MSP-based scoring doesn't need PRM model
             prm = None
@@ -330,7 +338,15 @@ def main():
         else:
             raise ValueError(f"Invalid score method: {config.score_method}")
 
+    print(f"[DEBUG] About to call score function")
+    print(f"[DEBUG] Dataset size before scoring: {len(dataset)}")
+    print(f"[DEBUG] First sample before scoring: {dataset[0] if len(dataset) > 0 else 'No samples'}")
+    
     dataset = score(dataset, config)
+    
+    print(f"[DEBUG] Dataset size after scoring: {len(dataset)}")
+    print(f"[DEBUG] First sample after scoring: {dataset[0] if len(dataset) > 0 else 'No samples'}")
+    
     save_dataset(dataset, config)
 
     import sys

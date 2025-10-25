@@ -89,27 +89,54 @@ def calculate_perplexity_score(answer_tokens_logprobs_list):
 def aggregate_scores(
     scores: list[float], agg_strategy: str
 ) -> float:
+    print(f"[DEBUG] aggregate_scores called with scores: {scores}, type: {type(scores)}, agg_strategy: {agg_strategy}")
+    
     # Handle case where scores is already a single float (already aggregated)
     if isinstance(scores, (int, float)):
+        print(f"[DEBUG] scores is already a single value: {scores}")
         return float(scores)
     
     # Handle empty list
     if not scores:
+        print(f"[DEBUG] scores is empty, returning 0.0")
         return 0.0
     
+    # Check for None values
+    if any(s is None for s in scores):
+        print(f"[DEBUG] scores contains None values: {scores}")
+        # Filter out None values
+        scores = [s for s in scores if s is not None]
+        if not scores:
+            print(f"[DEBUG] After filtering None values, scores is empty, returning 0.0")
+            return 0.0
+    
+    print(f"[DEBUG] Processing scores: {scores}")
+    
     if agg_strategy == "min":
-        return min(scores)
+        result = min(scores)
     elif agg_strategy == "prod":
-        return math.prod(scores)
+        result = math.prod(scores)
     elif agg_strategy == "last":
-        return scores[-1]
+        result = scores[-1]
     else:
         raise ValueError(f"Invalid aggregation strategy: {agg_strategy}")
+    
+    print(f"[DEBUG] aggregate_scores result: {result}, type: {type(result)}")
+    return result
 
 
 def score(dataset: Dataset, config: Config) -> Dataset:
+    print(f"[DEBUG] score function called with dataset size: {len(dataset)}")
+    print(f"[DEBUG] config.agg_strategy: {config.agg_strategy}")
+    
+    # Debug the first few samples
+    print(f"[DEBUG] First sample scores: {dataset[0]['scores'] if len(dataset) > 0 else 'No samples'}")
+    
     dataset = dataset.map(
-        lambda x: {"agg_scores": [aggregate_scores(s, "last") for s in x["scores"]]}
+        lambda x: {
+            "agg_scores": [aggregate_scores(s, "last") for s in x["scores"]],
+            "debug_scores_info": [f"type: {type(s)}, len: {len(s) if hasattr(s, '__len__') else 'N/A'}, content: {s}" for s in x["scores"]]
+        }
     )
     subsets = [2**i for i in range(config.n) if 2**i <= config.n]
     for n in tqdm(subsets, desc="Computing majority & weighted predictions"):
