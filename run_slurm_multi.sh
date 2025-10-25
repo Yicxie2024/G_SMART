@@ -109,12 +109,7 @@ for OPTION in $(seq $START_OPTION $END_OPTION); do
   echo "=== Running OPTION=$OPTION ==="
   
   case "$OPTION" in
-    0) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.08 --dataset_start=0 --dataset_end=100) ;;
-    1) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.05 --dataset_start=0 --dataset_end=100) ;;
-    2) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=cocoa_msp --uq_threshold=0.03 --dataset_start=0 --dataset_end=100) ;;
-    3) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=token_entropy --uq_threshold=0.3 --dataset_start=0 --dataset_end=10) ;;
-    4) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=token_entropy --uq_threshold=0.6 --dataset_start=0 --dataset_end=10) ;;
-    5) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_cocoa_default.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=token_entropy --uq_threshold=0.7 --dataset_start=0 --dataset_end=10) ;;
+    0) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --uq_threshold=0.08 --dataset_start=0 --dataset_end=10) ;;
     *) echo "Unknown OPTION=$OPTION. Valid options are 0-7." >&2; exit 1 ;;
   esac
 

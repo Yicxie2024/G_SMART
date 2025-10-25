@@ -88,6 +88,7 @@ class Config:
     
     # Baseline comparison options:
     run_slm_baseline: bool = True  # Whether to run SLM-only baseline
+    run_llm_baseline: bool = True  # Whether to run LLM-only baseline
     run_random_baseline: bool = True  # Whether to run random correction baseline
 
     def __post_init__(self):

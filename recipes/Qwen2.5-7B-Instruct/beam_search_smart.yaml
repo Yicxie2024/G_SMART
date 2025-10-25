@@ -15,5 +15,6 @@ n: 16
 #   if 'conf', specify conf_strategy: default is probs_mean
 
 # Baseline comparison settings
-run_slm_baseline: true       # Set to false to skip SLM-only baseline
-run_random_baseline: true    # Set to false to skip random correction baseline
+run_slm_baseline: false       # Set to false to skip SLM-only baseline
+run_random_baseline: fasle    # Set to false to skip random correction baseline
+run_llm_baseline: false    # Set to false to skip LLM-only baseline
