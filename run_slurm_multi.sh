@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
 #SBATCH --time=72:00:00
-#SBATCH --output=/storage/ukp/work/xie12/uncertainty-guided-reasoning/logs/slurm-%x-%j.out
-#SBATCH --error=/storage/ukp/work/xie12/uncertainty-guided-reasoning/logs/slurm-%x-%j.err
+#SBATCH --output=/mnt/beegfs/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/SMART/logs/slurm-%x-%j.out
+#SBATCH --error=/mnt/beegfs/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/SMART/logs/slurm-%x-%j.err
 #SBATCH --chdir=/mnt/beegfs/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/SMART
 
 set -euo pipefail

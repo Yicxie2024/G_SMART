@@ -1,0 +1,49 @@
+=== Activating env ===
+Loaded HUGGINGFACE_HUB_TOKEN from secret file
+Info: WANDB_API_KEY not set. Logging may be limited.
+=== Running options 0 to 7 sequentially ===
+=== Running OPTION=0 ===
+=== Using LOCAL cache at: /mnt/beegfs/work/xie12/tmp ===
+=== Running: python scripts/test_time_compute.py recipes/Qwen2.5-7B-Instruct/beam_search_smart.yaml --n=1 --beam_width=16 --score_method=perplexity --uq_threshold=0.08 --dataset_start=0 --dataset_end=10 ===
+ANTLR runtime and generated code versions disagree: 4.9.3!=4.7.2
+ANTLR runtime and generated code versions disagree: 4.9.3!=4.7.2
+ANTLR runtime and generated code versions disagree: 4.9.3!=4.7.2
+ANTLR runtime and generated code versions disagree: 4.9.3!=4.7.2
+====================
+The number of available GPUs: 1
+Approach name: beam_search_smart_conf
+
+Using SMART search.
+Using Perplexity based score.
+
+Threshold: 0.9
+N: 1
+Beam width: 16
+====================
+INFO 10-25 20:27:46 llm_engine.py:237] Initializing an LLM engine (vdev) with config: model='/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct', speculative_config=None, tokenizer='/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, override_neuron_config=None, rope_scaling=None, rope_theta=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=8192, download_dir=None, load_format=LoadFormat.AUTO, tensor_parallel_size=1, pipeline_parallel_size=1, disable_custom_all_reduce=False, quantization=None, enforce_eager=False, kv_cache_dtype=auto, quantization_param_path=None, device_config=cuda, decoding_config=DecodingConfig(guided_decoding_backend='outlines'), observability_config=ObservabilityConfig(otlp_traces_endpoint=None, collect_model_forward_time=False, collect_model_execute_time=False), seed=0, served_model_name=/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct, use_v2_block_manager=True, num_scheduler_steps=1, chunked_prefill_enabled=False multi_step_stream_outputs=True, enable_prefix_caching=True, use_async_output_proc=True, use_cached_outputs=False, mm_processor_kwargs=None)
+INFO 10-25 20:27:52 model_runner.py:1060] Starting to load model /storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct...
+INFO 10-25 20:27:53 model_runner.py:1071] Loading model weights took 2.8875 GB
+INFO 10-25 20:27:54 gpu_executor.py:122] # GPU blocks: 62897, # CPU blocks: 9362
+INFO 10-25 20:27:54 gpu_executor.py:126] Maximum concurrency for 8192 tokens per request: 122.85x
+INFO 10-25 20:27:57 model_runner.py:1402] Capturing the model for CUDA graphs. This may lead to unexpected consequences if the model is not static. To run the model in eager mode, set 'enforce_eager=True' or use '--enforce-eager' in the CLI.
+INFO 10-25 20:27:57 model_runner.py:1406] CUDA graphs can take additional 1~3 GiB memory per GPU. If you are running out of memory, consider decreasing `gpu_memory_utilization` or enforcing eager mode. You can also reduce the `max_num_seqs` as needed to decrease memory usage.
+INFO 10-25 20:28:11 model_runner.py:1530] Graph capturing finished in 14 secs.
+Normalized Perplexity: 1.1635444124241165
+Normalized Perplexity: 1.2720006939760164
+Normalized Perplexity: 1.1451622597894155
+Normalized Perplexity: 1.0868569836170856
+Normalized Perplexity: 1.0665674916172325
+Normalized Perplexity: 1.6308488064859603
+Normalized Perplexity: 1.078676617106473
+Normalized Perplexity: 1.195257977312826
+Normalized Perplexity: 1.0636119307251122
+Normalized Perplexity: 1.0972100536162397
+Normalized Perplexity: 1.0009526032428429
+Normalized Perplexity: 2.1329357190299114
+Normalized Perplexity: 1.034264678739897
+Normalized Perplexity: 1.061454286014028
+Normalized Perplexity: 1.0059527998332682
+Normalized Perplexity: 1.282688194806829
+Normalized Perplexity: 1.002714742337341
+Normalized Perplexity: 1.177496778531927
+Normalized Perplexity: 1.1815190558041417

@@ -1,0 +1,131 @@
+/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/transformers/utils/hub.py:105: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+  warnings.warn(
+/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/vllm/connections.py:8: RuntimeWarning: Failed to read commit hash:
+No module named 'vllm._version'
+  from vllm.version import __version__ as VLLM_VERSION
+Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.92it/s]
+Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  2.92it/s]
+
+Sliding Window Attention is enabled but not implemented for `sdpa`; unexpected results may be encountered.
+INFO:accelerate.utils.modeling:We will use 90% of the memory on device 0 for storing the model, and 10% for the buffer to avoid OOM. You can set `max_memory` in to a higher value to use more memory (at your own risk).
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [00:00<00:01,  2.04it/s]Loading checkpoint shards:  50%|█████     | 2/4 [00:00<00:00,  2.07it/s]Loading checkpoint shards:  75%|███████▌  | 3/4 [00:01<00:00,  2.07it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:01<00:00,  2.16it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:01<00:00,  2.12it/s]
+Parameter 'fn_kwargs'={'config': Config(approach='beam_search', score_method='perplexity', smart_search=True, prm_batch_size=4, model_path='/storage/ukp/shared/shared_model_weights/models--Qwen2.5-7B-Instruct', draft_model_path='/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct', gpu_memory_utilization=0.4, threshold=0.9, uq_threshold=0.08, prm_path='RLHFlow/Llama3.1-8B-PRM-Deepseek-Data', output_dir=None, num_proc=None, push_to_hub=False, hub_dataset_id=None, hub_dataset_private=False, overwrite_hub_revision=False, apply_voting=True, measure_flops=False, dataset_name='HuggingFaceH4/MATH-500', dataset_config=None, dataset_split='test', data_name='math', dataset_start=0, dataset_end=10, num_samples=None, system_prompt='Solve the following math problem efficiently and clearly:\n\n- For simple problems (2 steps or fewer):\nProvide a concise solution with minimal explanation.\n\n- For complex problems (3 steps or more):\nUse this step-by-step format:\n\n## Step 1: [Concise description]\n[Brief explanation and calculations]\n\n## Step 2: [Concise description]\n[Brief explanation and calculations]\n\n...\n\nRegardless of the approach, always conclude with:\n\nTherefore, the final answer is: $\\boxed{answer}$. I hope it is correct.\n\nWhere [answer] is just the final number or expression that solves the problem.', custom_chat_template=None, n=1, temperature=0.8, uq_sampling_temperature=1.0, top_p=1.0, top_k=None, search_batch_size=1, seed=0, max_tokens=2048, agg_strategy='last', conf_strategy='probs_mean', use_default_beam_search=False, beam_width=16, num_iterations=40, lookahead=0, filter_duplicates=True, sort_completed=False, run_slm_baseline=False, run_llm_baseline=False, run_random_baseline='fasle'), 'slm': <vllm.entrypoints.llm.LLM object at 0x7fc2079c12a0>, 'prm': None, 'llm': Qwen2ForCausalLM(
+  (model): Qwen2Model(
+    (embed_tokens): Embedding(152064, 3584)
+    (layers): ModuleList(
+      (0-27): 28 x Qwen2DecoderLayer(
+        (self_attn): Qwen2Attention(
+          (q_proj): Linear(in_features=3584, out_features=3584, bias=True)
+          (k_proj): Linear(in_features=3584, out_features=512, bias=True)
+          (v_proj): Linear(in_features=3584, out_features=512, bias=True)
+          (o_proj): Linear(in_features=3584, out_features=3584, bias=False)
+        )
+        (mlp): Qwen2MLP(
+          (gate_proj): Linear(in_features=3584, out_features=18944, bias=False)
+          (up_proj): Linear(in_features=3584, out_features=18944, bias=False)
+          (down_proj): Linear(in_features=18944, out_features=3584, bias=False)
+          (act_fn): SiLU()
+        )
+        (input_layernorm): Qwen2RMSNorm((3584,), eps=1e-06)
+        (post_attention_layernorm): Qwen2RMSNorm((3584,), eps=1e-06)
+      )
+    )
+    (norm): Qwen2RMSNorm((3584,), eps=1e-06)
+    (rotary_emb): Qwen2RotaryEmbedding()
+  )
+  (lm_head): Linear(in_features=3584, out_features=152064, bias=False)
+)} of the transform datasets.arrow_dataset.Dataset._map_single couldn't be hashed properly, a random hash was used instead. Make sure your transforms and parameters are serializable with pickle or dill for the dataset fingerprinting and caching to work. If you reuse this transform, the caching mechanism will consider it to be different from the previous calls and recompute everything. This warning is only showed once. Subsequent hashing failures won't be showed.
+WARNING:datasets.fingerprint:Parameter 'fn_kwargs'={'config': Config(approach='beam_search', score_method='perplexity', smart_search=True, prm_batch_size=4, model_path='/storage/ukp/shared/shared_model_weights/models--Qwen2.5-7B-Instruct', draft_model_path='/storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct', gpu_memory_utilization=0.4, threshold=0.9, uq_threshold=0.08, prm_path='RLHFlow/Llama3.1-8B-PRM-Deepseek-Data', output_dir=None, num_proc=None, push_to_hub=False, hub_dataset_id=None, hub_dataset_private=False, overwrite_hub_revision=False, apply_voting=True, measure_flops=False, dataset_name='HuggingFaceH4/MATH-500', dataset_config=None, dataset_split='test', data_name='math', dataset_start=0, dataset_end=10, num_samples=None, system_prompt='Solve the following math problem efficiently and clearly:\n\n- For simple problems (2 steps or fewer):\nProvide a concise solution with minimal explanation.\n\n- For complex problems (3 steps or more):\nUse this step-by-step format:\n\n## Step 1: [Concise description]\n[Brief explanation and calculations]\n\n## Step 2: [Concise description]\n[Brief explanation and calculations]\n\n...\n\nRegardless of the approach, always conclude with:\n\nTherefore, the final answer is: $\\boxed{answer}$. I hope it is correct.\n\nWhere [answer] is just the final number or expression that solves the problem.', custom_chat_template=None, n=1, temperature=0.8, uq_sampling_temperature=1.0, top_p=1.0, top_k=None, search_batch_size=1, seed=0, max_tokens=2048, agg_strategy='last', conf_strategy='probs_mean', use_default_beam_search=False, beam_width=16, num_iterations=40, lookahead=0, filter_duplicates=True, sort_completed=False, run_slm_baseline=False, run_llm_baseline=False, run_random_baseline='fasle'), 'slm': <vllm.entrypoints.llm.LLM object at 0x7fc2079c12a0>, 'prm': None, 'llm': Qwen2ForCausalLM(
+  (model): Qwen2Model(
+    (embed_tokens): Embedding(152064, 3584)
+    (layers): ModuleList(
+      (0-27): 28 x Qwen2DecoderLayer(
+        (self_attn): Qwen2Attention(
+          (q_proj): Linear(in_features=3584, out_features=3584, bias=True)
+          (k_proj): Linear(in_features=3584, out_features=512, bias=True)
+          (v_proj): Linear(in_features=3584, out_features=512, bias=True)
+          (o_proj): Linear(in_features=3584, out_features=3584, bias=False)
+        )
+        (mlp): Qwen2MLP(
+          (gate_proj): Linear(in_features=3584, out_features=18944, bias=False)
+          (up_proj): Linear(in_features=3584, out_features=18944, bias=False)
+          (down_proj): Linear(in_features=18944, out_features=3584, bias=False)
+          (act_fn): SiLU()
+        )
+        (input_layernorm): Qwen2RMSNorm((3584,), eps=1e-06)
+        (post_attention_layernorm): Qwen2RMSNorm((3584,), eps=1e-06)
+      )
+    )
+    (norm): Qwen2RMSNorm((3584,), eps=1e-06)
+    (rotary_emb): Qwen2RotaryEmbedding()
+  )
+  (lm_head): Linear(in_features=3584, out_features=152064, bias=False)
+)} of the transform datasets.arrow_dataset.Dataset._map_single couldn't be hashed properly, a random hash was used instead. Make sure your transforms and parameters are serializable with pickle or dill for the dataset fingerprinting and caching to work. If you reuse this transform, the caching mechanism will consider it to be different from the previous calls and recompute everything. This warning is only showed once. Subsequent hashing failures won't be showed.
+Running search:   0%|          | 0/10 [00:00<?, ? examples/s]
+Beam search iterations:   0%|          | 0/40 [00:00<?, ?it/s][A
+Beam search iterations:   2%|▎         | 1/40 [00:03<02:19,  3.58s/it][A
+Beam search iterations:   5%|▌         | 2/40 [00:05<01:45,  2.76s/it][A
+Beam search iterations:   8%|▊         | 3/40 [00:07<01:16,  2.07s/it][ABeam search iterations:   8%|▊         | 3/40 [00:07<01:26,  2.34s/it]
+
+Random: Pre-selected correction:   0%|          | 0/40 [00:00<?, ?it/s][A
+Random: Pre-selected correction:   2%|▎         | 1/40 [00:01<01:08,  1.76s/it][A
+Random: Pre-selected correction:   5%|▌         | 2/40 [00:04<01:21,  2.14s/it][A
+Random: Pre-selected correction:   8%|▊         | 3/40 [00:06<01:16,  2.07s/it][A
+Random: Pre-selected correction:  10%|█         | 4/40 [00:06<00:47,  1.31s/it][ARandom: Pre-selected correction:  10%|█         | 4/40 [00:06<00:57,  1.60s/it]
+Running search:  10%|█         | 1/10 [00:13<02:01, 13.48s/ examples]
+Beam search iterations:   0%|          | 0/40 [00:00<?, ?it/s][A
+Beam search iterations:   2%|▎         | 1/40 [00:02<01:26,  2.23s/it][A
+Beam search iterations:   5%|▌         | 2/40 [00:03<01:09,  1.82s/it][A
+Beam search iterations:   8%|▊         | 3/40 [00:06<01:17,  2.09s/it][A
+Beam search iterations:  10%|█         | 4/40 [00:07<01:07,  1.88s/it][A
+Beam search iterations:  12%|█▎        | 5/40 [00:09<00:59,  1.71s/it][A
+Beam search iterations:  15%|█▌        | 6/40 [00:11<01:03,  1.87s/it][A
+Beam search iterations:  18%|█▊        | 7/40 [00:12<00:51,  1.57s/it][A
+Beam search iterations:  20%|██        | 8/40 [00:13<00:51,  1.62s/it][A
+Beam search iterations:  22%|██▎       | 9/40 [00:15<00:48,  1.55s/it][A
+Beam search iterations:  25%|██▌       | 10/40 [00:17<00:49,  1.65s/it][A
+Beam search iterations:  28%|██▊       | 11/40 [00:18<00:46,  1.59s/it][A
+Beam search iterations:  30%|███       | 12/40 [00:20<00:47,  1.71s/it][A
+Beam search iterations:  32%|███▎      | 13/40 [00:21<00:39,  1.47s/it][A
+Beam search iterations:  35%|███▌      | 14/40 [00:22<00:36,  1.41s/it][A
+Beam search iterations:  38%|███▊      | 15/40 [00:23<00:31,  1.26s/it][ABeam search iterations:  38%|███▊      | 15/40 [00:23<00:39,  1.59s/it]
+
+Random: Pre-selected correction:   0%|          | 0/40 [00:00<?, ?it/s][A
+Random: Pre-selected correction:   2%|▎         | 1/40 [00:01<01:12,  1.87s/it][ARandom: Pre-selected correction:   2%|▎         | 1/40 [00:11<07:40, 11.81s/it]
+Running search:  10%|█         | 1/10 [00:49<07:22, 49.21s/ examples]
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/mnt/beegfs/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/SMART/scripts/test_time_compute.py", line 368, in <module>
+[rank0]:     main()
+[rank0]:   File "/mnt/beegfs/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/SMART/scripts/test_time_compute.py", line 206, in main
+[rank0]:     dataset = dataset.map(
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/arrow_dataset.py", line 557, in wrapper
+[rank0]:     out: Union["Dataset", "DatasetDict"] = func(self, *args, **kwargs)
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/arrow_dataset.py", line 3079, in map
+[rank0]:     for rank, done, content in Dataset._map_single(**dataset_kwargs):
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/arrow_dataset.py", line 3540, in _map_single
+[rank0]:     writer.write_batch(batch, try_original_type=try_original_type)
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/arrow_writer.py", line 626, in write_batch
+[rank0]:     arrays.append(pa.array(typed_sequence))
+[rank0]:   File "pyarrow/array.pxi", line 256, in pyarrow.lib.array
+[rank0]:   File "pyarrow/array.pxi", line 118, in pyarrow.lib._handle_arrow_array_protocol
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/arrow_writer.py", line 258, in __arrow_array__
+[rank0]:     out = cast_array_to_feature(
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/table.py", line 1798, in wrapper
+[rank0]:     return func(array, *args, **kwargs)
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/table.py", line 2066, in cast_array_to_feature
+[rank0]:     casted_array_values = _c(array.values, feature.feature)
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/table.py", line 1798, in wrapper
+[rank0]:     return func(array, *args, **kwargs)
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/table.py", line 2066, in cast_array_to_feature
+[rank0]:     casted_array_values = _c(array.values, feature.feature)
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/table.py", line 1798, in wrapper
+[rank0]:     return func(array, *args, **kwargs)
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/table.py", line 2103, in cast_array_to_feature
+[rank0]:     return array_cast(
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/table.py", line 1798, in wrapper
+[rank0]:     return func(array, *args, **kwargs)
+[rank0]:   File "/storage/ukp/work/xie12/miniconda3/envs/smart_clean/lib/python3.10/site-packages/datasets/table.py", line 1949, in array_cast
+[rank0]:     raise TypeError(f"Couldn't cast array of type {_short_str(array.type)} to {_short_str(pa_type)}")
+[rank0]: TypeError: Couldn't cast array of type double to null
+srun: error: scratchy: task 0: Exited with exit code 1
