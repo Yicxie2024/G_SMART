@@ -34,6 +34,7 @@ from .utils import (
 
 logger = logging.getLogger()
 from sal.utils.score import aggregate_scores, calculate_cocoa_uq_scores
+from sal.utils.text_preprocessing import normalize_texts_for_embedding
 
 from transformers import AutoTokenizer
 
@@ -178,7 +179,7 @@ def _beam_search(
         
         # 提取logprobs（1个greedy + beam_width-1个samples）
         beam_logprobs_list = [output.logprobs for output in all_outputs]
-        cocoa_msp, cocoa_ppl, cocoa_entropy = calculate_cocoa_uq_scores(
+        cocoa_msp, cocoa_ppl, cocoa_entropy, cocoa_confidence = calculate_cocoa_uq_scores(
             beam_logprobs_list, detok=_detok, embed_fn=_embed_fn
         )
         
@@ -188,6 +189,8 @@ def _beam_search(
             uq_score = cocoa_ppl
         elif config.score_method == "cocoa_entropy":
             uq_score = cocoa_entropy
+        elif config.score_method == "cocoa_confidence":
+            uq_score = cocoa_confidence
         else:
             raise ValueError(f"Invalid score method: {config.score_method}")
         
@@ -229,11 +232,13 @@ def _beam_search(
         assert len(active_beams) == 1, f"Expected 1 active beam, got {len(active_beams)}"
         
         uq_score = conf_agg_scores[0][0]
+        # All uncertainty scores (msp, ppl, entropy, confidence): lower is better (lower uncertainty = more confident)
+        # Note: cocoa_confidence uses the same calculation as cocoa_msp: (1 - p(y*|x)) * mean_dissim
         if uq_score <= config.uq_threshold:
             # UQ分数低，SLM生成的结果可信，不需要LLM纠错
             continue
-
         # UQ分数高，需要用LLM纠错
+        
         smart_done = True
         beam = prev_active_beams[0]  # 只有1个beam
 

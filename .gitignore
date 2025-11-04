@@ -53,3 +53,7 @@ top_level.txt
 .env.local
 .env.production
 .env.staging
+
+# 日志文件
+*.err
+*.out

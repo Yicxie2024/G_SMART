@@ -157,15 +157,19 @@ def calculate_cocoa_uq_scores(
     detok: Callable[[List[int]], str],           # List[int] -> str
     embed_fn: Callable[[List[str]], np.ndarray], # List[str] -> np.ndarray, shape (B, D)
     eps: float = 1e-12,
-) -> Tuple[float, float, float]:
+) -> Tuple[float, float, float, float]:
     """
     CoCoA-style scores for the first beam (y*):
       - MSP (paper):  u_msp     = 1 - exp(sum_t log p_t) = 1 - p(y*|x)
       - PPL:          u_ppl     = -mean_t log p_t
       - Entropy:      u_entropy = mean_t H_t,  H_t = -sum(lp * exp(lp)) per step
+      - Confidence:   c_conf    = 1 - p(y*|x) (same base as msp, treated as uncertainty)
 
     Each base u is multiplied by semantic inconsistency:
       mean_i (1 - cosine_sim(embed(y*), embed(y^i))) for i >= 1 (exclude self).
+    
+    Note: cocoa_confidence uses the same calculation as cocoa_msp:
+      cocoa_confidence = (1 - p(y*|x)) * mean_dissim = cocoa_msp
     """
 
     def _seq_token_ids(step_dict_list: List[Dict[int, Any]]) -> List[int]:
@@ -189,6 +193,11 @@ def calculate_cocoa_uq_scores(
         base_msp = 1.0 - p_star
     else:
         base_msp = 0.0
+        p_star = 0.0
+
+    # Confidence base: use 1 - p(y*|x) same as msp (so base_confidence = base_msp)
+    # This gives us uncertainty (not confidence), which we multiply by semantic inconsistency
+    base_confidence = float(base_msp)  # 1 - p(y*|x) = base_msp
 
     # PPL base: -mean log p_t
     base_ppl = -float(np.mean(logps)) if logps else 0.0
@@ -225,8 +234,12 @@ def calculate_cocoa_uq_scores(
     cocoa_msp     = float(base_msp     * mean_dissim)
     cocoa_ppl     = float(base_ppl     * mean_dissim)
     cocoa_entropy = float(base_entropy * mean_dissim)
+    
+    # Confidence: same as msp - use 1 - p(y*|x) multiplied by semantic inconsistency
+    # cocoa_confidence = (1 - p(y*|x)) * mean_dissim = base_confidence * mean_dissim
+    cocoa_confidence = float(base_confidence * mean_dissim)
 
-    return cocoa_msp, cocoa_ppl, cocoa_entropy
+    return cocoa_msp, cocoa_ppl, cocoa_entropy, cocoa_confidence
 
 
 from typing import List, Dict, Any, Tuple

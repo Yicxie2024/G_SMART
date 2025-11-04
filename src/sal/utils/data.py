@@ -53,6 +53,46 @@ def get_dataset(config: Config) -> Dataset:
             split=config.dataset_split,
             trust_remote_code=True
         )
+        
+        # If dataset_start and dataset_end are specified, sample evenly from each category
+        if config.dataset_start is not None and config.dataset_end is not None:
+            # Group by category and sample evenly
+            import numpy as np
+            
+            # Get all unique categories
+            categories = set(dataset['category'])
+            logger.info(f"Found {len(categories)} categories in MMLU-Pro dataset")
+            
+            # Calculate how many samples per category to select
+            num_categories = len(categories)
+            total_samples_needed = config.dataset_end - config.dataset_start
+            samples_per_category = total_samples_needed // num_categories
+            remainder = total_samples_needed % num_categories
+            
+            logger.info(f"Selecting {samples_per_category} samples per category (+ {remainder} extra)")
+            
+            # Select samples from each category
+            selected_indices = []
+            for i, category in enumerate(sorted(categories)):
+                # Get indices for this category
+                category_indices = [j for j, cat in enumerate(dataset['category']) if cat == category]
+                
+                # Calculate how many to take from this category
+                num_to_take = samples_per_category + (1 if i < remainder else 0)
+                
+                # Sample evenly across the category
+                if num_to_take > 0 and len(category_indices) > 0:
+                    # Use numpy to evenly distribute indices
+                    step = max(1, len(category_indices) // num_to_take)
+                    sampled_indices = category_indices[::step][:num_to_take]
+                    selected_indices.extend(sampled_indices)
+                    
+                    logger.info(f"  Category '{category}': selected {len(sampled_indices)} samples")
+            
+            # Select the samples from the dataset
+            dataset = dataset.select(selected_indices)
+            logger.info(f"Total samples selected: {len(dataset)}")
+        
         # Format questions with options for MMLU-Pro
         # Define formatting function inline to avoid import issues
         def format_mmlu_pro_question(example):
@@ -199,8 +239,10 @@ def get_dataset(config: Config) -> Dataset:
     else:
         dataset = load_dataset(config.dataset_name, split=config.dataset_split, trust_remote_code=True)
 
-    # Apply dataset_start and dataset_end for non-BBH datasets
-    if config.dataset_name != "lukaemon/bbh":
+    # Apply dataset_start and dataset_end for non-BBH and non-MMLU-Pro datasets
+    # (MMLU-Pro already handles this with category-based sampling)
+    is_mmlu_pro = "mmlu_pro" in config.dataset_name.lower() or "MMLU-Pro" in config.dataset_name
+    if config.dataset_name != "lukaemon/bbh" and not is_mmlu_pro:
         if config.dataset_start is not None and config.dataset_end is not None:
             dataset = dataset.select(range(config.dataset_start, config.dataset_end))
         if config.num_samples is not None:
@@ -241,7 +283,11 @@ def save_dataset(dataset, config):
         logger.info(f"Pushed dataset to {url}")
     else:
         if config.output_dir is None:
-            config.output_dir = f"/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/{config.score_method}"
+            # Set specific output directory for random_score method
+            if config.score_method == 'random_score':
+                config.output_dir = "/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/random_score"
+            else:
+                config.output_dir = f"/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/{config.score_method}"
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
         
         # Name the folder based on the approach used
@@ -258,6 +304,8 @@ def save_dataset(dataset, config):
                 folder_name = "smart_margin"
             elif config.score_method == 'token_entropy':
                 folder_name = "smart_token_entropy"
+            elif config.score_method == 'random_score':
+                folder_name = "smart_random_score"
             # if score_methode starts with cocoa, then folder_name is smart_cocoa
             elif config.score_method.startswith('cocoa'):
                 folder_name = "smart_cocoa"
@@ -282,6 +330,10 @@ def save_dataset(dataset, config):
         
         # Clean dataset name for filename (replace slashes and special chars)
         dataset_name_clean = config.dataset_name.replace('/', '_').replace('\\', '_')
+        
+        # Create folder_name subdirectory if it doesn't exist
+        folder_path = Path(config.output_dir) / folder_name
+        folder_path.mkdir(parents=True, exist_ok=True)
 
         # Save the dataset to a jsonl file by splitting the dataset or not
         if config.dataset_start is not None and config.dataset_end is not None:

@@ -237,15 +237,20 @@ def generate_k_steps_for_llm(
             )[:, input_ids["input_ids"].shape[1]:]
             new_step = tokenizer.decode(new_ids[0]) #, skip_special_tokens=True)
             
-            assert len(new_step) > 0 and new_step != "\n\n" and new_step != ""
-            # stop reason logic
-            stop_reason = None
-            if new_step.endswith("\n\n"):
-                stop_reason = '\n\n'
-            elif len(new_step) > config.max_tokens:
-                stop_reason = "length"
-            else:
+            # Handle empty generation (model immediately stops or generates only special tokens)
+            if len(new_step) == 0 or new_step == "\n\n" or new_step == "":
+                # Treat as EOS and mark this generation as complete
+                new_step = ""  # Ensure it's empty string
                 stop_reason = "EOS"
+            else:
+                # stop reason logic
+                stop_reason = None
+                if new_step.endswith("\n\n"):
+                    stop_reason = '\n\n'
+                elif len(new_step) > config.max_tokens:
+                    stop_reason = "length"
+                else:
+                    stop_reason = "EOS"
             # elif tokenizer.eos_token_id == new_ids[0][-1] or new_step.endswith(tokenizer.eos_token):
             #     stop_reason = "EOS"
 
@@ -498,15 +503,20 @@ def generate_k_steps_for_llm_with_responses(
             responses_token_log_probs.append(token_log_probs)
 
             
-            assert len(new_step) > 0 and new_step != "\n\n" and new_step != ""
-            # stop reason logic
-            stop_reason = None
-            if new_step.endswith("\n\n"):
-                stop_reason = '\n\n'
-            elif len(new_step) > config.max_tokens:
-                stop_reason = "length"
-            else:
+            # Handle empty generation (model immediately stops or generates only special tokens)
+            if len(new_step) == 0 or new_step == "\n\n" or new_step == "":
+                # Treat as EOS and mark this generation as complete
+                new_step = ""  # Ensure it's empty string
                 stop_reason = "EOS"
+            else:
+                # stop reason logic
+                stop_reason = None
+                if new_step.endswith("\n\n"):
+                    stop_reason = '\n\n'
+                elif len(new_step) > config.max_tokens:
+                    stop_reason = "length"
+                else:
+                    stop_reason = "EOS"
             # elif tokenizer.eos_token_id == new_ids[0][-1] or new_step.endswith(tokenizer.eos_token):
             #     stop_reason = "EOS"
 

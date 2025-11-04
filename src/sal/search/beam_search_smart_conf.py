@@ -98,8 +98,8 @@ def _beam_search(
         if iterate_idx == 0:
             active_beams = [b for b in beams if not b.pruned and not b.completed]
         else:
-            active_beams = [b for b in active_beams if not b.pruned and not b.completed]
-
+            active_beams = [b for b in active_beams if not b.pruned]
+            
         if len(active_beams) == 0:
             break
 
@@ -220,7 +220,7 @@ def _beam_search(
             need_correction = conf_agg_scores and conf_agg_scores[0][0] < config.uq_threshold
         elif config.score_method == "msp":
             # For MSP, higher values indicate more uncertainty, so correct if above threshold
-            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] < config.uq_threshold
         elif config.score_method == "token_entropy":
             # For Token Entropy, higher values indicate more uncertainty, so correct if above threshold
             need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
@@ -320,15 +320,6 @@ def _beam_search_llm_only(
     batch_of_prompts, config: Config, llm, prm: PRM = None
 ) -> tuple:
     """LLM-only baseline: use LLM to generate every step (no SLM)."""
-    sampling_params = SamplingParams(
-        temperature=config.temperature,
-        max_tokens=config.max_tokens,
-        top_p=config.top_p,
-        stop=["\n\n"],
-        include_stop_str_in_output=True,
-        n=1,
-        logprobs=True,
-    )
 
     beams: list[Beam] = []
     start_time = time.time()
@@ -368,16 +359,7 @@ def _beam_search_llm_only(
             active_beams = [b for b in beams if not b.pruned]
         else:
             active_beams = [b for b in active_beams if not b.pruned]
-
-        if iterate_idx == config.num_iterations - 1:
-            sampling_params = SamplingParams(
-                temperature=config.temperature,
-                max_tokens=config.max_tokens,
-                top_p=config.top_p,
-                n=1,
-                logprobs=True,
-            )
-
+        
         # Build conversations and generate with LLM
         convs = [
             build_conv(b.prompt, b.current_text, config.system_prompt)
@@ -438,6 +420,9 @@ def _beam_search_llm_only(
     completion_time = end_time - start_time
     for beam in completed_beams:
         beam.completion_time = completion_time
+        # Fill all_scores with placeholder values since LLM-only doesn't have logprobs
+        # all_scores should be list[float], e.g., [0.0, 0.0, ...]
+        beam.all_scores = [0.0] * len(beam.history) if len(beam.history) > 0 else [0.0]
 
     if prm is not None:
         prompts = [b.prompt for b in completed_beams]
@@ -569,6 +554,8 @@ def _beam_search_slm_only(
         beam.llm_tokens = [-1]
         beam.completion_time = completion_time
         beam.llm_correction_tokens = 0
+        # Fill all_scores with placeholder values since SLM-only doesn't calculate scores
+        beam.all_scores = [0.0] * len(beam.history) if len(beam.history) > 0 else [0.0]
 
     if prm is not None:
         prompts = [b.prompt for b in completed_beams]
@@ -764,6 +751,8 @@ def _beam_search_random_correction(
     completion_time = end_time - start_time
     for beam in completed_beams:
         beam.completion_time = completion_time
+        # Fill all_scores with placeholder values since Random doesn't calculate scores
+        beam.all_scores = [0.0] * len(beam.history) if len(beam.history) > 0 else [0.0]
 
     if prm is not None:
         prompts = [b.prompt for b in completed_beams]
@@ -906,24 +895,14 @@ def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: No
         # Random
         if run_random_baseline:
             beams_random = grouped_results_random[p]
-            if len(beams_random) > 0:
-                completions_random = [b.current_text for b in beams_random]
-                scores_random = [b.all_scores for b in beams_random]
-                pred_random = completions_random[0] if len(completions_random) > 0 else ""
-                counts_random = [getattr(b, "llm_corrections", 0) for b in beams_random]
-                counts_random_preselected = [len(getattr(b, "pre_selected_correction_steps", [])) for b in beams_random]
-                times_random = [getattr(b, "completion_time", 0.0) for b in beams_random]
-                tokens_random = [getattr(b, "llm_correction_tokens", 0) for b in beams_random]
-                early_stop_flags = [getattr(b, "early_stop_unused_corrections", False) for b in beams_random]
-            else:
-                completions_random = []
-                scores_random = []
-                pred_random = ""
-                counts_random = []
-                counts_random_preselected = []
-                times_random = []
-                tokens_random = []
-                early_stop_flags = []
+            completions_random = [b.current_text for b in beams_random]
+            scores_random = [b.all_scores for b in beams_random]
+            pred_random = completions_random[0] if len(completions_random) > 0 else ""
+            counts_random = [getattr(b, "llm_corrections", 0) for b in beams_random]
+            counts_random_preselected = [len(getattr(b, "pre_selected_correction_steps", [])) for b in beams_random]
+            times_random = [getattr(b, "completion_time", 0.0) for b in beams_random]
+            tokens_random = [getattr(b, "llm_correction_tokens", 0) for b in beams_random]
+            early_stop_flags = [getattr(b, "early_stop_unused_corrections", False) for b in beams_random]
 
             results["completions_random"].append(completions_random)
             results["pred_random"].append(pred_random)

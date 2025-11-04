@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, List, Optional
 from typing import Union
 from huggingface_hub import get_full_repo_name
 
@@ -90,6 +90,10 @@ class Config:
     run_slm_baseline: bool = True  # Whether to run SLM-only baseline
     run_llm_baseline: bool = True  # Whether to run LLM-only baseline
     run_random_baseline: bool = True  # Whether to run random correction baseline
+    
+    # Random score-based correction options:
+    random_thresholds: Optional[List[float]] = None  # List of random thresholds for random score-based correction
+    uq_thresholds: Optional[List[float]] = None  # List of UQ thresholds for multi-threshold confidence-based correction
 
     def __post_init__(self):
         if self.approach == "dvts":

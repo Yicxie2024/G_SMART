@@ -12,14 +12,14 @@ seed: 0
 smart_search: true
 
 # Will be overridden by command line arguments
-n: 16
+n: 1
 beam_width: 4
 score_method: conf
 conf_strategy: probs_mean  # Default confidence strategy
 
 # MMLU-Pro dataset settings
 dataset_name: "TIGER-Lab/MMLU-Pro"
-dataset_split: "test"
+dataset_split: "validation"
 data_name: "mmlu_pro"
 dataset_start: 0
 dataset_end: 1000  # Adjust as needed (use 100 for testing, or increase for full evaluation)
@@ -31,8 +31,9 @@ max_tokens: 4096
 system_prompt: "You are Qwen, created by Alibaba Cloud. You are a helpful assistant. Answer the following multiple-choice question. You will be given several answer choices labeled with letters (A), (B), (C), (D), etc. Provide step-by-step reasoning before selecting your answer. Conclude with: Therefore, the answer is (X) where X is the option letter (A, B, C, D, E, F, G, H, I, or J)."
 
 # Baseline comparison settings (optional)
-run_slm_baseline: false      # Set to true to run SLM-only baseline
-run_random_baseline: false   # Set to true to run random correction baseline
+run_slm_baseline: true        # Set to true to run SLM-only baseline
+run_random_baseline: true   # Set to true to run random correction baseline
+run_llm_baseline: true
 
 # Note: This configuration uses confidence-based scoring (conf)
 # which evaluates beam paths based on token probabilities

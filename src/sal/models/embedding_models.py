@@ -59,7 +59,13 @@ class SentenceTransformerModel(EmbeddingModel):
         logger = logging.getLogger(__name__)
         logger.info(f"Loading SentenceTransformer: {self.model_name}")
         
-        model = SentenceTransformer(self.model_name)
+        # Some models require trust_remote_code=True (e.g., Alibaba-NLP/gte-large-en-v1.5)
+        try:
+            model = SentenceTransformer(self.model_name, trust_remote_code=True)
+        except Exception as e:
+            # If trust_remote_code causes issues, try without it
+            logger.warning(f"Failed to load with trust_remote_code=True: {e}. Trying without...")
+            model = SentenceTransformer(self.model_name)
         return model
     
     def encode(
@@ -94,7 +100,9 @@ _EMBEDDING_MODEL_CACHE: Optional[EmbeddingModel] = None
 
 
 def get_embedding_model(
+    #model_name: str = "Alibaba-NLP/gte-large-en-v1.5"
     model_name: str = "sentence-transformers/all-mpnet-base-v2"
+
 ) -> EmbeddingModel:
     """
     Get or create embedding model instance (singleton pattern).

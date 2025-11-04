@@ -17,7 +17,7 @@ import dataclasses
 import os
 import sys
 from dataclasses import dataclass
-from typing import Any, List, NewType, Optional, Tuple, Union
+from typing import Any, List, NewType, Optional, Tuple, Union, get_origin, get_args
 
 from transformers import HfArgumentParser
 
@@ -65,6 +65,16 @@ class H4ArgumentParser(HfArgumentParser):
 
                     if base_type is List[str]:
                         inputs[arg] = [str(v) for v in val.split(",")]
+                    
+                    # Handle generic list type (e.g., random_thresholds: list)
+                    # Try to convert comma-separated values to list of floats
+                    if base_type is list or (hasattr(base_type, '__origin__') and get_origin(base_type) is list):
+                        # Attempt to convert each value to float
+                        try:
+                            inputs[arg] = [float(v.strip()) for v in val.split(",")]
+                        except ValueError:
+                            # If conversion fails, keep as strings
+                            inputs[arg] = [v.strip() for v in val.split(",")]
 
                     # bool of a non-empty string is True, so we manually check for bools
                     if base_type is bool or base_type is Optional[bool]:

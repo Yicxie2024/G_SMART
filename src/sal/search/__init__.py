@@ -36,11 +36,31 @@ try:
 except Exception:
     pass
 try:
+    from .beam_search_smart_random_score import smart_beam_search_random_score as beam_search_smart_random_score
+except Exception:
+    pass
+try:
+    from .beam_search_smart_random_score import split_dataset_by_thresholds
+except Exception:
+    pass
+try:
+    from .beam_search_smart_conf_multi_threshold import smart_beam_search_conf_multi_threshold as beam_search_smart_conf_multi_threshold
+except Exception:
+    pass
+try:
+    from .beam_search_smart_conf_multi_threshold import split_dataset_by_thresholds as split_dataset_by_uq_thresholds
+except Exception:
+    pass
+try:
     from .beam_search_smart_cocoa import smart_beam_search_cocoa as beam_search_smart_cocoa
 except Exception:
     pass
 try:
     from .beam_search_smart_cocoa_default import smart_beam_search_cocoa_default as beam_search_smart_cocoa_default
+except Exception:
+    pass
+try:
+    from .beam_search_smart_cocoa_multi_threshold import smart_beam_search_cocoa_multi_threshold as beam_search_smart_cocoa_multi_threshold
 except Exception:
     pass
 try:
