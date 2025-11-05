@@ -126,6 +126,8 @@ def main():
             approach_suffix += "_cocoa" if not getattr(config, 'use_default_beam_search', False) else "_cocoa_default"
         elif config.score_method == "token_entropy":
             approach_suffix += "_conf"
+        elif config.score_method == "token_sar":
+            approach_suffix += "_conf"  # token_sar uses the same approach as conf
         approach_name = config.approach + approach_suffix
 
     if approach_name not in APPROACHES:
@@ -143,6 +145,7 @@ def main():
         "cocoa_ppl": "CoCoA PPL", 
         "cocoa_entropy": "CoCoA Entropy",
         "token_entropy": "Token Entropy",
+        "token_sar": "Token SAR",
         "prm": "PRM"
     }
     score_name = score_method_names.get(config.score_method, "Unknown")
@@ -269,6 +272,26 @@ def main():
                 desc="Running search",
                 load_from_cache_file=False,
             )
+        elif config.score_method == "token_sar":
+            # Token SAR-based scoring doesn't need PRM model (uses the same approach as conf)
+            prm = None
+            
+            # Initialize CrossEncoder once for all samples
+            from sentence_transformers import CrossEncoder
+            crossencoder = CrossEncoder(
+                "cross-encoder/stsb-roberta-large",
+                device="cuda"
+            )
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "slm": slm, "prm": prm, "llm": llm, "crossencoder": crossencoder},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
         elif approach_name == "beam_search_smart_random_score":
             # Random score-based correction doesn't need PRM model
             prm = None
@@ -361,6 +384,52 @@ def main():
             )
         elif config.score_method == "top2_margin":
             # Top-2 margin-based scoring doesn't need PRM model
+            prm = None
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "llm": llm, "prm": prm},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
+        elif config.score_method == "token_entropy":
+            # Token Entropy-based scoring doesn't need PRM model
+            prm = None
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "llm": llm, "prm": prm},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
+        elif config.score_method == "token_sar":
+            # Token SAR-based scoring doesn't need PRM model (uses the same approach as conf)
+            prm = None
+            
+            # Initialize CrossEncoder once for all samples
+            from sentence_transformers import CrossEncoder
+            crossencoder = CrossEncoder(
+                "cross-encoder/stsb-roberta-large",
+                device="cuda"
+            )
+
+            dataset = get_dataset(config)
+            dataset = dataset.map(
+                approach_fn,
+                batched=True,
+                batch_size=config.search_batch_size,
+                fn_kwargs={"config": config, "llm": llm, "prm": prm, "crossencoder": crossencoder},
+                desc="Running search",
+                load_from_cache_file=False,
+            )
+        elif config.score_method == "perplexity":
+            # Perplexity-based scoring doesn't need PRM model
             prm = None
 
             dataset = get_dataset(config)

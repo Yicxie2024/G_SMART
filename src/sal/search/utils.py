@@ -235,22 +235,31 @@ def generate_k_steps_for_llm(
                 stopping_criteria=[stopping_criteria],
                 generation_config=generation_config,
             )[:, input_ids["input_ids"].shape[1]:]
-            new_step = tokenizer.decode(new_ids[0]) #, skip_special_tokens=True)
+            new_step = tokenizer.decode(new_ids[0], skip_special_tokens=True)
             
             # Handle empty generation (model immediately stops or generates only special tokens)
-            if len(new_step) == 0 or new_step == "\n\n" or new_step == "":
-                # Treat as EOS and mark this generation as complete
-                new_step = ""  # Ensure it's empty string
+            if len(new_step) == 0:
+                # Truly empty generation
+                new_step = ""
                 stop_reason = "EOS"
+            elif new_step == "\n\n" or new_step.strip() == "":
+                # Only whitespace/newlines - treat as stopped by \n\n criteria
+                stop_reason = '\n\n'
+            elif new_step.endswith("\n\n"):
+                # Normal text ending with \n\n
+                stop_reason = '\n\n'
+            elif len(new_step) > config.max_tokens:
+                stop_reason = "length"
             else:
-                # stop reason logic
-                stop_reason = None
-                if new_step.endswith("\n\n"):
-                    stop_reason = '\n\n'
-                elif len(new_step) > config.max_tokens:
-                    stop_reason = "length"
+                # Check if the last generated token is EOS
+                if len(new_ids[0]) > 0 and tokenizer.eos_token_id is not None:
+                    if new_ids[0][-1].item() == tokenizer.eos_token_id:
+                        stop_reason = "EOS"
+                    else:
+                        # Shouldn't reach here normally
+                        stop_reason = '\n\n'
                 else:
-                    stop_reason = "EOS"
+                    stop_reason = '\n\n'
             # elif tokenizer.eos_token_id == new_ids[0][-1] or new_step.endswith(tokenizer.eos_token):
             #     stop_reason = "EOS"
 
@@ -492,7 +501,7 @@ def generate_k_steps_for_llm_with_responses(
             )
 
             new_ids = response.sequences[:, input_ids["input_ids"].shape[-1]:]  #
-            new_step = tokenizer.decode(new_ids[0]) #, skip_special_tokens=True)
+            new_step = tokenizer.decode(new_ids[0], skip_special_tokens=True)
 
             scores = response.scores
             log_probs = [F.log_softmax(score, dim=-1) for score in scores] 

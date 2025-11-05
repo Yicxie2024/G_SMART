@@ -39,15 +39,23 @@ from sal.utils.score import (
     calculate_perplexity_score,
     calculate_top2_margin_scores,
     calculate_msp_scores,
-    calculate_token_entropy_scores
+    calculate_token_entropy_scores,
+    calculate_token_similarity,
+    calculate_token_sar_score
 )
 
 from transformers import AutoTokenizer
 
 
 def _beam_search(
-    batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None
+    batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None, crossencoder=None
 ) -> tuple:
+    # Get special tokens for TokenSAR if needed
+    special_tokens = None
+    if config.score_method == "token_sar" and crossencoder is not None:
+        tokenizer_for_special = slm.get_tokenizer()
+        special_tokens = list(tokenizer_for_special.added_tokens_decoder.keys())
+    
     sampling_params = SamplingParams(
         temperature=config.temperature,
         max_tokens=config.max_tokens,
@@ -164,7 +172,7 @@ def _beam_search(
 
         # Confidence scores based on token logprobs
         conf_scores = []
-        for output in [o for r in responses for o in r.outputs]:
+        for idx, output in enumerate([o for r in responses for o in r.outputs]):
             if config.score_method == "conf":
                 likelihood, likelihood_mean, probs_mean = calculate_confidence_score(output.logprobs)
                 conf_scores.append([likelihood_mean])  # Use normalized likelihood
@@ -183,6 +191,29 @@ def _beam_search(
                 # Token Entropy method: use base token entropy score (simplified for single beam)
                 max_entropy, mean_entropy, entropies = calculate_token_entropy_scores([output.logprobs])
                 conf_scores.append([mean_entropy])
+            elif config.score_method == "token_sar":
+                # TokenSAR method: calculate token similarity and weighted uncertainty
+                if crossencoder is not None and hasattr(output, 'token_ids'):
+                    beam = active_beams[idx] if idx < len(active_beams) else active_beams[-1]
+                    token_ids = output.token_ids
+                    input_text = beam.prompt
+                    
+                    # Calculate token similarity
+                    token_similarity = calculate_token_similarity(
+                        token_ids,
+                        input_text,
+                        tokenizer,
+                        crossencoder,
+                        special_tokens
+                    )
+                    
+                    # Calculate TokenSAR score
+                    sar_score = calculate_token_sar_score(output.logprobs, token_similarity)
+                    conf_scores.append([sar_score])
+                else:
+                    # Fallback to mean entropy if CrossEncoder not available
+                    max_entropy, mean_entropy, entropies = calculate_token_entropy_scores([output.logprobs])
+                    conf_scores.append([mean_entropy])
             else:
                 # Default to confidence score for backward compatibility
                 likelihood, likelihood_mean, probs_mean = calculate_confidence_score(output.logprobs)
@@ -224,6 +255,11 @@ def _beam_search(
         elif config.score_method == "token_entropy":
             # For Token Entropy, higher values indicate more uncertainty, so correct if above threshold
             need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
+        elif config.score_method == "token_sar":
+            # For TokenSAR, higher values indicate more uncertainty, so correct if above threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
+        else:
+            need_correction = False
         if not need_correction:
             continue
 
@@ -763,12 +799,12 @@ def _beam_search_random_correction(
 
     return completed_beams, total_tokens, prm_scores
 
-def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: None):
+def smart_beam_search_conf(examples, config: Config, slm: LLM, prm: PRM, llm: None, crossencoder=None):
     problems = examples["problem"]
 
     # 1) Original SMART confidence-guided
     beam_results_uq, total_tokens_uq, prm_scores_uq = _beam_search(
-        problems, config, slm, prm, llm
+        problems, config, slm, prm, llm, crossencoder
     )
     grouped_results_uq = defaultdict(list)
     for results in beam_results_uq:

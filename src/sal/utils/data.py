@@ -283,9 +283,11 @@ def save_dataset(dataset, config):
         logger.info(f"Pushed dataset to {url}")
     else:
         if config.output_dir is None:
-            # Set specific output directory for random_score method
+            # Set specific output directory for special score methods
             if config.score_method == 'random_score':
                 config.output_dir = "/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/random_score"
+            elif config.score_method == 'token_sar':
+                config.output_dir = "/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/token_sar"
             else:
                 config.output_dir = f"/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/{config.score_method}"
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
@@ -304,6 +306,8 @@ def save_dataset(dataset, config):
                 folder_name = "smart_margin"
             elif config.score_method == 'token_entropy':
                 folder_name = "smart_token_entropy"
+            elif config.score_method == 'token_sar':
+                folder_name = "smart_token_sar"
             elif config.score_method == 'random_score':
                 folder_name = "smart_random_score"
             # if score_methode starts with cocoa, then folder_name is smart_cocoa
@@ -322,6 +326,8 @@ def save_dataset(dataset, config):
                 folder_name = "base_margin"
             elif config.score_method == 'token_entropy':
                 folder_name = "base_token_entropy"
+            elif config.score_method == 'token_sar':
+                folder_name = "base_token_sar"
         # Name the appoarch in likelihood score
         if config.beam_width == 1:
             approach_fn = "best_of_n"

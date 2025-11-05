@@ -7,7 +7,7 @@
 BASE_EXTRA=(
   --approach=beam_search
   --smart_search=True
-  --score_method=cocoa_msp
+  --score_method=perplexity
   --n=1
   --beam_width=16
   --num_iterations=40
@@ -36,5 +36,5 @@ BASE_EXTRA=(
 
 # UQ thresholds 配置（用于多阈值实验）
 # 可根据需要修改为不同的阈值组合
-UQ_THRESHOLDS=(0.0012 0.12 0.2 0.28)
+UQ_THRESHOLDS=(0.0003 0.03 0.06 0.08 0.1)
 

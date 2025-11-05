@@ -244,6 +244,111 @@ def calculate_cocoa_uq_scores(
 
 from typing import List, Dict, Any, Tuple
 import numpy as np
+import itertools
+
+# -----------------------------
+# TokenSAR: Token Similarity and Relevance
+# -----------------------------
+def calculate_token_similarity(
+    token_ids: List[int],
+    input_text: str,
+    tokenizer,
+    crossencoder,
+    special_tokens: List[int] = None
+) -> np.ndarray:
+    """
+    计算每个 token 的相似度（留一法 leave-one-out）
+    
+    Args:
+        token_ids: 生成的 token IDs
+        input_text: 输入文本（prompt）
+        tokenizer: tokenizer
+        crossencoder: CrossEncoder 模型
+        special_tokens: 特殊 token IDs 列表
+        
+    Returns:
+        np.ndarray: 每个 token 的相似度分数 [0, 1]
+    """
+    if len(token_ids) <= 1:
+        return np.array([0.5] * len(token_ids))
+    
+    # 处理特殊 tokens
+    if special_tokens is None:
+        special_tokens = []
+    is_special_tokens = np.isin(token_ids, special_tokens)
+    
+    # 生成留一法序列（每次去掉一个 token）
+    cropped_tokens = list(itertools.combinations(token_ids, len(token_ids) - 1))[::-1]
+    
+    # 完整文本
+    raw_text = input_text + " " + tokenizer.decode(token_ids, skip_special_tokens=True)
+    
+    # 构建相似度计算对：(完整文本, 去掉第i个token的文本)
+    batches = [
+        (
+            raw_text,
+            input_text + " " + tokenizer.decode(list(t), skip_special_tokens=True)
+        )
+        for t in cropped_tokens
+    ]
+    
+    # 使用 CrossEncoder 计算相似度
+    token_scores = crossencoder.predict(batches, batch_size=10)
+    
+    # 特殊 tokens 设为高相似度（不重要）
+    token_scores[is_special_tokens] = 1.0
+    
+    return token_scores
+
+
+def calculate_token_sar_score(
+    logprobs_list: List[Dict[int, Any]],
+    token_similarity: np.ndarray
+) -> float:
+    """
+    计算 TokenSAR (Token Semantic Alignment and Relevance) 分数
+    
+    基于论文: https://arxiv.org/abs/2307.01379
+    
+    Args:
+        logprobs_list: token logprobs (from vLLM output)
+        token_similarity: 每个 token 的相似度分数
+        
+    Returns:
+        float: TokenSAR 不确定性分数（越高越不确定）
+    """
+    if not logprobs_list:
+        return 0.0
+    
+    # 提取 log likelihoods
+    log_likelihoods = []
+    for lp in logprobs_list:
+        try:
+            ll = float(next(iter(lp.values())).logprob)
+            if np.isfinite(ll):
+                log_likelihoods.append(ll)
+        except Exception:
+            continue
+    
+    if not log_likelihoods:
+        return 0.0
+    
+    log_likelihoods = np.array(log_likelihoods)
+    
+    # 确保 token_similarity 长度匹配
+    if len(token_similarity) != len(log_likelihoods):
+        # 如果长度不匹配，截断或填充
+        min_len = min(len(token_similarity), len(log_likelihoods))
+        token_similarity = token_similarity[:min_len]
+        log_likelihoods = log_likelihoods[:min_len]
+    
+    # TokenSAR 计算
+    R_t = 1 - token_similarity  # 相关性权重（低相似度 = 高权重）
+    R_t_norm = R_t / (R_t.sum() + 1e-12)  # 归一化
+    E_t = -log_likelihoods * R_t_norm  # 加权不确定性
+    
+    return float(E_t.sum())
+
 
 # -----------------------------
 # 2) Top-2 margin（步级前两大概率差）

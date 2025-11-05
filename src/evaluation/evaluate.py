@@ -61,13 +61,15 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
         print(f"max_num_samples: {max_num_samples} / {len(samples)}")
         samples = samples[:max_num_samples]
 
-    # automatically extend pred_keys: if there are pred_random_uniform, pred_random, pred_slm, also evaluate them
+    # automatically extend pred_keys: if there are pred_random_uniform, pred_random, pred_slm, pred_llm, also evaluate them
     if pred_keys is None:
         candidate_keys = ['pred']
         if 'pred_random_uniform' in samples[0]:
             candidate_keys.append('pred_random_uniform')
         if 'pred_slm' in samples[0]:
             candidate_keys.append('pred_slm')
+        if 'pred_llm' in samples[0]:
+            candidate_keys.append('pred_llm')
         if 'pred_random' in samples[0]:
             candidate_keys.append('pred_random')
         pred_keys = candidate_keys
@@ -76,6 +78,8 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
             pred_keys = list(pred_keys) + ['pred_random_uniform']
         if 'pred_slm' in samples[0] and 'pred_slm' not in pred_keys:
             pred_keys = list(pred_keys) + ['pred_slm']
+        if 'pred_llm' in samples[0] and 'pred_llm' not in pred_keys:
+            pred_keys = list(pred_keys) + ['pred_llm']
         if 'pred_random' in samples[0] and 'pred_random' not in pred_keys:
             pred_keys = list(pred_keys) + ['pred_random']
 
@@ -320,6 +324,67 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
     else:
         completion_scores_slm = None
 
+    # if there are completions_llm, also evaluate the correctness of each completion
+    have_llm_completions = 'completions_llm' in samples[0]
+    if have_llm_completions:
+        if data_name == "mbpp":
+            # For MBPP: evaluate using test cases
+            params_llm = [
+                (idx, completion, sample)
+                for idx, sample in enumerate(samples)
+                for completion in sample.get('completions_llm', [])
+            ]
+            completion_scores_llm = []
+            progress_bar = tqdm(total=len(params_llm), desc="Evaluate per-completion (llm-only, MBPP)")
+            for idx, completion, sample in params_llm:
+                try:
+                    result = mbpp_equal_process((idx, completion, sample))
+                    completion_scores_llm.append(result)
+                except TimeoutError as error:
+                    print(error)
+                    completion_scores_llm.append(False)
+                    timeout_cnt += 1
+                except Exception as error:
+                    print(error)
+                    print(f"Error evaluating llm sample {idx}: {error}")
+                    completion_scores_llm.append(False)
+                progress_bar.update(1)
+            progress_bar.close()
+            
+            # Extract code for display
+            for sample in samples:
+                sample['pred_completions_llm'] = [
+                    extract_answer_with_context(c, data_name, sample) for c in sample.get('completions_llm', [])
+                ]
+        else:
+            # For math/BBH: extract answer and compare
+            for sample in samples:
+                sample['pred_completions_llm'] = [
+                    extract_answer_with_context(c, data_name, sample) for c in sample.get('completions_llm', [])
+                ]
+            params_llm = [
+                (idx, pred, sample['gt'])
+                for idx, sample in enumerate(samples)
+                for pred in sample['pred_completions_llm']
+            ]
+            completion_scores_llm = []
+            progress_bar = tqdm(total=len(params_llm), desc="Evaluate per-completion (llm-only)")
+            for idx, pred, gt in params_llm:
+                try:
+                    result = math_equal_process((idx, pred, gt))
+                    completion_scores_llm.append(result)
+                except TimeoutError as error:
+                    print(error)
+                    completion_scores_llm.append(False)
+                    timeout_cnt += 1
+                except Exception as error:
+                    print(error)
+                    exit()
+                progress_bar.update(1)
+            progress_bar.close()
+    else:
+        completion_scores_llm = None
+
     # fill back to samples
     # pred_keys matrix
     idx = 0
@@ -354,6 +419,15 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
             n = len(sample.get('pred_completions_slm', []))
             sample['correct_completions_slm'] = completion_scores_slm[idx: idx + n]
             assert len(sample['correct_completions_slm']) == n
+            idx += n
+
+    # the correctness of the llm-only completions
+    if completion_scores_llm is not None:
+        idx = 0
+        for sample in samples:
+            n = len(sample.get('pred_completions_llm', []))
+            sample['correct_completions_llm'] = completion_scores_llm[idx: idx + n]
+            assert len(sample['correct_completions_llm']) == n
             idx += n
 
     max_len = max([len(s) for s in score_mat])
