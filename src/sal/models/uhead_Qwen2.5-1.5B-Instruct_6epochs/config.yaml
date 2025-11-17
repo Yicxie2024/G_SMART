@@ -1,0 +1,13 @@
+head_type: claim
+feature_extractor:
+- name: luh.feature_extractors.basic_attention
+  layer_nums: all
+  attn_history_sz: 5
+  pool: false
+- name: luh.feature_extractors.token_probabilities
+  top_n: 4
+uncertainty_head:
+  head_dim: 768
+  n_layers: 2
+  n_heads: 8
+  dropout: 0.1

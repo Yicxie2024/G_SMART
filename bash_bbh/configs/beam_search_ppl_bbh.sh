@@ -36,5 +36,5 @@ BASE_EXTRA=(
 
 # UQ thresholds 配置（用于多阈值实验）
 # 可根据需要修改为不同的阈值组合
-UQ_THRESHOLDS=(0.0003 0.03 0.06 0.08 0.1)
+UQ_THRESHOLDS=(0.1 0.5 1.0 2.0 5.0)
 

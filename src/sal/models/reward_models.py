@@ -65,8 +65,9 @@ def batched_math_shepherd_inference(
 
 
 class PRM:
-    def __init__(self, search_config: Config, **model_kwargs):
+    def __init__(self, search_config: Config, max_memory_gb: int = None, **model_kwargs):
         self.search_config = search_config
+        self.max_memory_gb = max_memory_gb
         self.model, self.tokenizer = self.load_model_and_tokenizer(**model_kwargs)
 
     def load_model_and_tokenizer(
@@ -86,12 +87,17 @@ class MathShepherd(PRM):
         tokenizer = AutoTokenizer.from_pretrained(model_id)
         # For batched inference
         tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(
-            model_id,
-            device_map="auto",
-            attn_implementation="flash_attention_2",
-            torch_dtype=torch.float16,
-        ).eval()
+        
+        # Dynamic memory allocation based on GPU size
+        model_kwargs = {
+            "device_map": "auto",
+            "attn_implementation": "flash_attention_2",
+            "torch_dtype": torch.float16,
+        }
+        if self.max_memory_gb is not None:
+            model_kwargs["max_memory"] = {0: f"{self.max_memory_gb}GB"}
+        
+        model = AutoModelForCausalLM.from_pretrained(model_id, **model_kwargs).eval()
         return model, tokenizer
 
     def score(
@@ -138,11 +144,20 @@ class RLHFFlow(PRM):
         tokenizer = AutoTokenizer.from_pretrained(
             "RLHFlow/Llama3.1-8B-PRM-Deepseek-Data"
         )
+        
+        # Dynamic memory allocation based on GPU size
+        # Use INT8 quantization to reduce memory: 16GB -> ~8GB
+        load_kwargs = {
+            "device_map": "auto",
+            "load_in_8bit": True,  # INT8 quantization for memory reduction
+        }
+        if self.max_memory_gb is not None:
+            load_kwargs["max_memory"] = {0: f"{self.max_memory_gb}GB"}
+        load_kwargs.update(model_kwargs)
+        
         model = AutoModelForCausalLM.from_pretrained(
             "RLHFlow/Llama3.1-8B-PRM-Deepseek-Data",
-            device_map="auto",
-            torch_dtype=torch.bfloat16,
-            **model_kwargs,
+            **load_kwargs,
         ).eval()
         tokenizer.padding_side = "right"
         tokenizer.pad_token = tokenizer.eos_token
@@ -275,11 +290,11 @@ class RLHFFlow(PRM):
         return reshaped_output_scores
 
 
-def load_prm(config: Config) -> PRM:
+def load_prm(config: Config, max_memory_gb: int = None) -> PRM:
     if config.prm_path == "peiyi9979/math-shepherd-mistral-7b-prm":
-        return MathShepherd(config)
+        return MathShepherd(config, max_memory_gb=max_memory_gb)
 
     if config.prm_path == "RLHFlow/Llama3.1-8B-PRM-Deepseek-Data":
-        return RLHFFlow(config)
+        return RLHFFlow(config, max_memory_gb=max_memory_gb)
 
     raise NotImplementedError(f"PRM {config.prm_path} not implemented")

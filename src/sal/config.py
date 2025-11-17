@@ -14,8 +14,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Literal, List, Optional
-from typing import Union
+from typing import Any, Dict, Literal, List, Optional, Union
 from huggingface_hub import get_full_repo_name
 
 from sal.utils.hub import get_dataset_revisions
@@ -25,18 +24,24 @@ from sal.utils.hub import get_dataset_revisions
 class Config:
     approach: Literal["best_of_n", "beam_search", "dvts"] = "best_of_n"
     score_method: str = "prm"  # 'conf'     # originally logprobs_base_score
+    token_sar_conf_margin_params: Optional[Dict[str, Any]] = None
     smart_search: bool = False
     prm_batch_size: int = 8
     model_path: str = (
         "/storage/ukp/shared/shared_model_weights/models--meta-llama--Llama-3.2-1B-Instruct"
     )
+    uq_model_path: Optional[str] = None  # Optional override for UHead base LLM
     draft_model_path: str = None
     gpu_memory_utilization: float = (
-        0.4  # vllm is allocated 0.5 of GPU memory, the PRM uses the rest
+        0.3  # Ratio for vLLM in SMART mode (auto-adapts to GPU size)
+            # 40GB GPU: ~12GB vLLM, ~12GB LLM, ~12GB PRM, ~4GB buffer
+            # 80GB GPU: ~24GB vLLM, ~24GB LLM, ~24GB PRM, ~8GB buffer
     )
     threshold: float = 0.9
     uq_threshold: float = 0.15
+    prm_threshold: float = 0.7  # High threshold for PRM in hybrid correction
     prm_path: str = "RLHFlow/Llama3.1-8B-PRM-Deepseek-Data"
+    uq_head_path: str = "llm-uncertainty-head/uhead_claim_Mistral-7B-Instruct-v0.2"
     # Output Related Options
     output_dir: str = None
     num_proc: int = None
@@ -72,7 +77,7 @@ class Config:
     prm_batch_size: int = 4
     search_batch_size: int = 25
     seed: int = 42
-    max_tokens: int = 2048
+    max_tokens: int = 4096
     agg_strategy: str = "last"  # Options: "last", "min", "prod"
     # consider logprobs_based_score as a score ex) likelihood
     conf_strategy: str = "probs_mean"  # Options: "log_sum", "log_mean", "probs_mean"
@@ -90,6 +95,14 @@ class Config:
     run_slm_baseline: bool = True  # Whether to run SLM-only baseline
     run_llm_baseline: bool = True  # Whether to run LLM-only baseline
     run_random_baseline: bool = True  # Whether to run random correction baseline
+    run_slm_only_baseline: bool = False  # Whether to run standalone SLM-only baseline (independent execution)
+    run_llm_only_baseline: bool = False  # Whether to run standalone LLM-only baseline (independent execution)
+    
+    # UHead-specific options:
+    disable_uhead_random_baseline: bool = False  # If True, skip the internal random-schedule baseline in smart_beam_search_uhead
+    
+    # PRM-only SMART search option:
+    use_prm_only: bool = False  # Whether to use simplified PRM-only SMART search (single beam, no beam search complexity)
     
     # Random score-based correction options:
     random_thresholds: Optional[List[float]] = None  # List of random thresholds for random score-based correction

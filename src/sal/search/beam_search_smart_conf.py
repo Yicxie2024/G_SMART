@@ -34,14 +34,15 @@ from .utils import (
 
 logger = logging.getLogger()
 from sal.utils.score import (
-    aggregate_scores, 
-    calculate_confidence_score, 
+    aggregate_scores,
+    calculate_confidence_score,
     calculate_perplexity_score,
     calculate_top2_margin_scores,
     calculate_msp_scores,
     calculate_token_entropy_scores,
     calculate_token_similarity,
-    calculate_token_sar_score
+    calculate_token_sar_score,
+    combine_token_sar_conf_margin,
 )
 
 from transformers import AutoTokenizer
@@ -52,9 +53,9 @@ def _beam_search(
 ) -> tuple:
     # Get special tokens for TokenSAR if needed
     special_tokens = None
-    if config.score_method == "token_sar" and crossencoder is not None:
+    if config.score_method in {"token_sar", "token_sar_conf_margin"} and crossencoder is not None:
         tokenizer_for_special = slm.get_tokenizer()
-        special_tokens = list(tokenizer_for_special.added_tokens_decoder.keys())
+        special_tokens = set(tokenizer_for_special.added_tokens_decoder.keys())
     
     sampling_params = SamplingParams(
         temperature=config.temperature,
@@ -214,6 +215,32 @@ def _beam_search(
                     # Fallback to mean entropy if CrossEncoder not available
                     max_entropy, mean_entropy, entropies = calculate_token_entropy_scores([output.logprobs])
                     conf_scores.append([mean_entropy])
+            elif config.score_method == "token_sar_conf_margin":
+                if crossencoder is not None and hasattr(output, 'token_ids'):
+                    beam = active_beams[idx] if idx < len(active_beams) else active_beams[-1]
+                    token_ids = output.token_ids
+                    input_text = beam.prompt
+
+                    token_similarity = calculate_token_similarity(
+                        token_ids,
+                        input_text,
+                        tokenizer,
+                        crossencoder,
+                        special_tokens,
+                    )
+
+                    combine_kwargs = getattr(config, "token_sar_conf_margin_params", None) or {}
+                    combined = combine_token_sar_conf_margin(
+                        [output.logprobs],
+                        token_similarity,
+                        skip_token_ids=special_tokens,
+                        **combine_kwargs,
+                    )
+                    conf_scores.append([combined["final_score"]])
+                    beam.extra_info = getattr(beam, "extra_info", []) + [combined]
+                else:
+                    max_entropy, mean_entropy, entropies = calculate_token_entropy_scores([output.logprobs])
+                    conf_scores.append([mean_entropy])
             else:
                 # Default to confidence score for backward compatibility
                 likelihood, likelihood_mean, probs_mean = calculate_confidence_score(output.logprobs)
@@ -257,6 +284,8 @@ def _beam_search(
             need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
         elif config.score_method == "token_sar":
             # For TokenSAR, higher values indicate more uncertainty, so correct if above threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
+        elif config.score_method == "token_sar_conf_margin":
             need_correction = conf_agg_scores and conf_agg_scores[0][0] > config.uq_threshold
         else:
             need_correction = False

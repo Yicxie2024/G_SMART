@@ -15,6 +15,7 @@
 import copy
 import logging
 from collections import defaultdict
+from typing import Optional, Set
 import time
 
 import numpy as np
@@ -34,19 +35,22 @@ from .utils import (
 
 logger = logging.getLogger()
 from sal.utils.score import (
-    aggregate_scores, 
-    calculate_confidence_score, 
+    aggregate_scores,
+    calculate_confidence_score,
     calculate_perplexity_score,
     calculate_top2_margin_scores,
     calculate_msp_scores,
-    calculate_token_entropy_scores
+    calculate_token_entropy_scores,
+    calculate_token_similarity,
+    calculate_token_sar_score,
+    combine_token_sar_conf_margin,
 )
 
 from transformers import AutoTokenizer
 
 
 def _beam_search_conf(
-    batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None, uq_threshold: float
+    batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None, uq_threshold: float, crossencoder=None
 ) -> tuple:
     """Beam search with confidence-based correction.
     
@@ -57,7 +61,17 @@ def _beam_search_conf(
             - top2_margin: correct if score < threshold
             - msp: correct if score < threshold
             - token_entropy: correct if score > threshold
+            - token_sar: correct if score > threshold
+        crossencoder: CrossEncoder model for token_sar method (optional)
     """
+    # Get special tokens for TokenSAR if needed
+    special_tokens: Optional[Set[int]] = None
+    if (
+        config.score_method in {"token_sar", "token_sar_conf_margin"}
+        and crossencoder is not None
+    ):
+        tokenizer_for_special = slm.get_tokenizer()
+        special_tokens = set(tokenizer_for_special.added_tokens_decoder.keys())
     sampling_params = SamplingParams(
         temperature=config.temperature,
         max_tokens=config.max_tokens,
@@ -174,7 +188,7 @@ def _beam_search_conf(
 
         # Confidence scores based on token logprobs
         conf_scores = []
-        for output in [o for r in responses for o in r.outputs]:
+        for idx, output in enumerate([o for r in responses for o in r.outputs]):
             if config.score_method == "conf":
                 likelihood, likelihood_mean, probs_mean = calculate_confidence_score(output.logprobs)
                 conf_scores.append([likelihood_mean])  # Use normalized likelihood
@@ -193,6 +207,37 @@ def _beam_search_conf(
                 # Token Entropy method: use base token entropy score (simplified for single beam)
                 max_entropy, mean_entropy, entropies = calculate_token_entropy_scores([output.logprobs])
                 conf_scores.append([mean_entropy])
+            elif config.score_method in {"token_sar", "token_sar_conf_margin"}:
+                if crossencoder is not None and hasattr(output, "token_ids"):
+                    beam = active_beams[idx] if idx < len(active_beams) else active_beams[-1]
+                    token_ids = output.token_ids
+                    input_text = beam.prompt
+
+                    token_similarity = calculate_token_similarity(
+                        token_ids,
+                        input_text,
+                        tokenizer,
+                        crossencoder,
+                        special_tokens,
+                    )
+
+                    if config.score_method == "token_sar":
+                        sar_score = calculate_token_sar_score(output.logprobs, token_similarity)
+                        conf_scores.append([sar_score])
+                    else:
+                        combine_kwargs = getattr(config, "token_sar_conf_margin_params", None) or {}
+                        combined = combine_token_sar_conf_margin(
+                            [output.logprobs],
+                            token_similarity,
+                            skip_token_ids=special_tokens,
+                            **combine_kwargs,
+                        )
+                        conf_scores.append([combined["final_score"]])
+                        # Persist intermediate info for later inspection if desired
+                        beam.extra_info = getattr(beam, "extra_info", []) + [combined]
+                else:
+                    max_entropy, mean_entropy, entropies = calculate_token_entropy_scores([output.logprobs])
+                    conf_scores.append([mean_entropy])
             else:
                 # Default to confidence score for backward compatibility
                 likelihood, likelihood_mean, probs_mean = calculate_confidence_score(output.logprobs)
@@ -233,6 +278,11 @@ def _beam_search_conf(
             need_correction = conf_agg_scores and conf_agg_scores[0][0] < uq_threshold
         elif config.score_method == "token_entropy":
             # For Token Entropy, higher values indicate more uncertainty, so correct if above threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] > uq_threshold
+        elif config.score_method == "token_sar":
+            # For TokenSAR, higher values indicate more uncertainty, so correct if above threshold
+            need_correction = conf_agg_scores and conf_agg_scores[0][0] > uq_threshold
+        elif config.score_method == "token_sar_conf_margin":
             need_correction = conf_agg_scores and conf_agg_scores[0][0] > uq_threshold
         else:
             # Default to confidence score behavior
@@ -330,7 +380,7 @@ def _beam_search_conf(
     return completed_beams, total_tokens, prm_scores
 
 
-def smart_beam_search_conf_multi_threshold(examples, config: Config, slm: LLM, prm: PRM, llm: None):
+def smart_beam_search_conf_multi_threshold(examples, config: Config, slm: LLM, prm: PRM, llm: None, crossencoder=None):
     """Confidence-based SMART beam search for multiple thresholds.
     
     This function runs confidence-based correction for each threshold in config.uq_thresholds.
@@ -368,7 +418,7 @@ def smart_beam_search_conf_multi_threshold(examples, config: Config, slm: LLM, p
         
         # Run beam search with this threshold
         beam_results, total_tokens, prm_scores = _beam_search_conf(
-            problems, config, slm, prm, llm, uq_threshold
+            problems, config, slm, prm, llm, uq_threshold, crossencoder
         )
         
         # Group results by prompt
@@ -380,6 +430,7 @@ def smart_beam_search_conf_multi_threshold(examples, config: Config, slm: LLM, p
         completions = []
         preds = []
         scores = []
+        score_details = []
         correction_counts = []
         completion_times = []
         llm_correction_tokens = []
@@ -390,6 +441,7 @@ def smart_beam_search_conf_multi_threshold(examples, config: Config, slm: LLM, p
             beams = grouped_results[p]
             beam_completions = [b.current_text for b in beams]
             beam_scores = [b.all_scores for b in beams]
+            beam_meta = [getattr(b, "extra_info", []) for b in beams]
             pred = beam_completions[0] if len(beam_completions) > 0 else ""
             counts = [getattr(b, "llm_corrections", 0) for b in beams]
             times = [getattr(b, "completion_time", 0.0) for b in beams]
@@ -413,6 +465,7 @@ def smart_beam_search_conf_multi_threshold(examples, config: Config, slm: LLM, p
             completions.append(beam_completions)
             preds.append(pred)
             scores.append(beam_scores)
+            score_details.append(beam_meta)
             correction_counts.append(counts)
             completion_times.append(times)
             llm_correction_tokens.append(tokens)
@@ -423,6 +476,7 @@ def smart_beam_search_conf_multi_threshold(examples, config: Config, slm: LLM, p
         all_results[f"{threshold_str}_completions"] = completions
         all_results[f"{threshold_str}_pred"] = preds
         all_results[f"{threshold_str}_scores"] = scores
+        all_results[f"{threshold_str}_score_details"] = score_details
         all_results[f"{threshold_str}_correction_counts"] = correction_counts
         all_results[f"{threshold_str}_completion_times"] = completion_times
         all_results[f"{threshold_str}_llm_correction_tokens"] = llm_correction_tokens
@@ -500,6 +554,8 @@ def split_dataset_by_thresholds(dataset, config: Config):
                 threshold_example["pred"] = example[f"{threshold_str}_pred"]
             if f"{threshold_str}_scores" in example:
                 threshold_example["scores"] = example[f"{threshold_str}_scores"]
+            if f"{threshold_str}_score_details" in example:
+                threshold_example["score_details"] = example[f"{threshold_str}_score_details"]
             if f"{threshold_str}_correction_counts" in example:
                 threshold_example["correction_counts"] = example[f"{threshold_str}_correction_counts"]
             if f"{threshold_str}_completion_times" in example:

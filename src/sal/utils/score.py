@@ -14,7 +14,9 @@
 # limitations under the License.
 
 
+import itertools
 import math
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from datasets import Dataset
 from tqdm import tqdm
@@ -70,6 +72,11 @@ def calculate_perplexity_score(answer_tokens_logprobs_list):
         * token_perplexity: exp(-mean(log_prob_per_token))
     """
     
+    # Handle empty list case
+    if not answer_tokens_logprobs_list or len(answer_tokens_logprobs_list) == 0:
+        # Return default values for empty list
+        return 1.0, 1.0, 1.0
+    
     log_likelihood_of_completion = sum(next(iter(logprob.values())).logprob for logprob in answer_tokens_logprobs_list)
     
     # Standard perplexity: exp(-log_likelihood)
@@ -77,11 +84,18 @@ def calculate_perplexity_score(answer_tokens_logprobs_list):
     
     T = len(answer_tokens_logprobs_list)
     # Normalized perplexity: exp(-log_likelihood / T)
-    normalized_perplexity_score = np.exp(-log_likelihood_of_completion / T)
+    # T should never be 0 here due to the check above, but add safeguard
+    if T == 0:
+        normalized_perplexity_score = 1.0
+    else:
+        normalized_perplexity_score = np.exp(-log_likelihood_of_completion / T)
     
     # Token-level perplexity: exp(-mean(log_prob_per_token))
     token_logprobs = [next(iter(logprob.values())).logprob for logprob in answer_tokens_logprobs_list]
-    token_perplexity_score = np.exp(-np.mean(token_logprobs))
+    if token_logprobs:
+        token_perplexity_score = np.exp(-np.mean(token_logprobs))
+    else:
+        token_perplexity_score = 1.0
     
     return perplexity_score, normalized_perplexity_score, token_perplexity_score
 
@@ -148,8 +162,6 @@ def score(dataset: Dataset, config: Config) -> Dataset:
             [f"completions@{n}", f"agg_scores@{n}", f"preds@{n}"]
         )
     return dataset
-
-from typing import Callable, List, Dict, Any, Tuple
 
 def calculate_cocoa_uq_scores(
     beam_logprobs_list: List[List[Dict[int, Any]]],
@@ -242,10 +254,6 @@ def calculate_cocoa_uq_scores(
     return cocoa_msp, cocoa_ppl, cocoa_entropy, cocoa_confidence
 
 
-from typing import List, Dict, Any, Tuple
-import numpy as np
-import itertools
-
 # -----------------------------
 # TokenSAR: Token Similarity and Relevance
 # -----------------------------
@@ -294,6 +302,18 @@ def calculate_token_similarity(
     
     # 使用 CrossEncoder 计算相似度
     token_scores = crossencoder.predict(batches, batch_size=10)
+    token_scores = np.asarray(token_scores, dtype=float)
+
+    if token_scores.ndim == 2:
+        # 多类别输出（例如 NLI 模型），转换为概率并选取“蕴含”分数作为相似度
+        logits = token_scores
+        logits = logits - logits.max(axis=1, keepdims=True)
+        exp_logits = np.exp(logits)
+        probs = exp_logits / (exp_logits.sum(axis=1, keepdims=True) + 1e-12)
+        entailment_idx = 2 if probs.shape[1] >= 3 else probs.shape[1] - 1
+        token_scores = probs[:, entailment_idx]
+
+    token_scores = np.clip(token_scores, 0.0, 1.0)
     
     # 特殊 tokens 设为高相似度（不重要）
     token_scores[is_special_tokens] = 1.0
@@ -348,6 +368,277 @@ def calculate_token_sar_score(
     E_t = -log_likelihoods * R_t_norm  # 加权不确定性
     
     return float(E_t.sum())
+
+
+# -----------------------------
+# Token-SAR + Confidence + Margin（融合版）
+# -----------------------------
+def combine_token_sar_conf_margin(
+    beam_logprobs_list: List[List[Dict[int, Any]]],
+    token_similarity: np.ndarray,
+    *,
+    # —— 通用 ——
+    skip_token_ids: Optional[Set[int]] = None,
+    tail_ratio: float = 0.2,
+    # —— confidence 配置 ——
+    conf_mode: str = "one_minus_p",  # 'one_minus_p' | 'nll'
+    # —— margin 配置 ——
+    margin_space: str = "logit",  # 'logit' | 'prob'
+    margin_robust_q: Optional[float] = 0.10,
+    min_gap_fallback: float = 1e-3,
+    tie_metric: str = "logit",  # 'logit' | 'prob'
+    near_tie_delta: float = 0.5,
+    # —— SAR 配置 ——
+    use_entropy: bool = True,
+    sim_norm: str = "z",  # 'z' | 'minmax' | 'none'
+    sar_temp: float = 1.0,
+    # —— 短句回退 ——
+    short_token_threshold: int = 8,
+    # —— 融合权重 ——
+    w_sar: float = 1.0,
+    w_conf: float = 1.0,
+    w_margin: float = 0.4,
+    # —— 归一化 ——
+    normalize: str = "z",  # 'z' | 'minmax' | 'none'
+) -> dict:
+    """融合 Token-SAR、confidence 与 top-2 margin 的不确定性分数。
+
+    返回的 ``final_score`` 值越大表示越不确定。
+    """
+
+    token_similarity_arr = (
+        np.asarray(token_similarity, dtype=float)
+        if token_similarity is not None
+        else np.empty(0, dtype=float)
+    )
+
+    if not beam_logprobs_list or not beam_logprobs_list[0]:
+        return {
+            "final_score": 0.0,
+            "mode": "empty",
+            "sar": {},
+            "margin": {},
+            "conf": {},
+        }
+
+    def _tail_slice(arr: np.ndarray) -> Tuple[np.ndarray, int]:
+        if arr.size == 0:
+            return arr, 0
+        if 0.0 < tail_ratio < 1.0 and arr.size >= 2:
+            k = max(1, int(round(arr.size * tail_ratio)))
+            start = arr.size - k
+            return arr[start:], start
+        return arr, 0
+
+    def _safe_z(x: np.ndarray) -> np.ndarray:
+        if x.size == 0:
+            return x
+        mu = float(np.mean(x))
+        sd = float(np.std(x))
+        if not np.isfinite(sd) or sd < 1e-12:
+            return np.zeros_like(x)
+        return (x - mu) / (sd + 1e-12)
+
+    def _safe_minmax(x: np.ndarray) -> np.ndarray:
+        if x.size == 0:
+            return x
+        lo = float(np.min(x))
+        hi = float(np.max(x))
+        if not (np.isfinite(lo) and np.isfinite(hi)) or (hi - lo) < 1e-12:
+            return np.zeros_like(x)
+        return (x - lo) / (hi - lo + 1e-12)
+
+    def _norm(arr: np.ndarray) -> np.ndarray:
+        if normalize == "z":
+            return _safe_z(arr)
+        if normalize == "minmax":
+            return _safe_minmax(arr)
+        return arr
+
+    def _norm_scalar(val: float, *, fallback: bool = True) -> float:
+        """Apply the same normalization as ``_norm`` to a scalar value.
+
+        When there is only a single sample, both z-score and min-max
+        normalization would degenerate to zero because the variance or range
+        collapses. This in turn flattened every component score to ``0.0`` and
+        made the final uncertainty score uninformative. To avoid that, we fall
+        back to the raw value whenever the normalized result is (close to) all
+        zeros.
+        """
+
+        arr = np.asarray([val], dtype=float)
+        normed = _norm(arr)
+
+        if fallback and normed.size and np.allclose(normed, 0.0, atol=1e-9):
+            return float(val)
+
+        return float(normed[0]) if normed.size else float(val)
+
+    flat_cands: List[Dict[int, Any]] = list(beam_logprobs_list[0])
+    T_total = len(flat_cands)
+
+    ps_list: List[np.ndarray] = []
+    top1_list: List[float] = []
+    logit_gap_list: List[float] = []
+    prob_gap_list: List[float] = []
+
+    for cand in flat_cands:
+        filtered = {
+            tid: obj
+            for tid, obj in cand.items()
+            if not (skip_token_ids and tid in skip_token_ids)
+        }
+        if not filtered:
+            filtered = cand  # fallback: 保留原候选，避免整个位被丢弃
+
+        lps = [float(getattr(v, "logprob", np.nan)) for v in filtered.values()]
+        lps = np.asarray([x for x in lps if np.isfinite(x)], dtype=float)
+        if lps.size == 0:
+            continue
+
+        lps_norm = lps - np.max(lps)
+        ps = np.exp(lps_norm)
+        ps /= np.sum(ps) + 1e-12
+
+        ps_list.append(ps)
+        top1 = float(ps.max())
+        top1_list.append(top1)
+
+        if ps.size >= 2:
+            idx_prob = np.argpartition(-ps, 1)[:2]
+            p1, p2 = float(ps[idx_prob[0]]), float(ps[idx_prob[1]])
+            prob_gap_list.append(max(p1 - p2, 0.0))
+
+            idx_lp = np.argpartition(-lps_norm, 1)[:2]
+            lp1, lp2 = float(lps_norm[idx_lp[0]]), float(lps_norm[idx_lp[1]])
+            logit_gap_list.append(max(lp1 - lp2, min_gap_fallback))
+        else:
+            prob_gap_list.append(1.0)
+            logit_gap_list.append(max(min_gap_fallback, 0.0))
+
+    if not ps_list:
+        return {
+            "final_score": 0.0,
+            "mode": "conf_fallback",
+            "sar": {},
+            "margin": {},
+            "conf": {},
+        }
+
+    p_top1 = np.asarray(top1_list, dtype=float)
+    logit_gap = np.asarray(logit_gap_list, dtype=float)
+    prob_gap = np.asarray(prob_gap_list, dtype=float)
+
+    conf_tokens = 1.0 - p_top1 if conf_mode == "one_minus_p" else -np.log(np.clip(p_top1, 1e-12, 1.0))
+    conf_tail_vals, _ = _tail_slice(conf_tokens)
+    conf_tail = float(np.mean(conf_tail_vals)) if conf_tail_vals.size else 0.0
+
+    margin_arr = logit_gap if margin_space == "logit" else prob_gap
+    margin_tail_vals, _ = _tail_slice(margin_arr)
+    if margin_tail_vals.size:
+        m_mean = float(np.mean(margin_tail_vals))
+        if margin_robust_q is not None:
+            m_robust = float(np.quantile(margin_tail_vals, margin_robust_q))
+        else:
+            m_robust = m_mean
+    else:
+        m_mean = 0.0
+        m_robust = 0.0
+
+    tie_arr = logit_gap if tie_metric == "logit" else prob_gap
+    tie_tail_vals, _ = _tail_slice(tie_arr)
+    tie_metric_val = float(np.mean(tie_tail_vals)) if tie_tail_vals.size else 0.0
+    near_tie = tie_metric_val <= near_tie_delta
+
+    if T_total <= short_token_threshold:
+        final_score = w_conf * _norm_scalar(conf_tail)
+        return {
+            "final_score": float(final_score),
+            "mode": "conf",
+            "sar": {},
+            "margin": {
+                "per_step": margin_arr.tolist(),
+                "robust": m_robust,
+                "mean": m_mean,
+                "space": margin_space,
+            },
+            "conf": {
+                "tail_mean": conf_tail,
+                "mode": conf_mode,
+            },
+        }
+
+    U = []
+    for ps in ps_list:
+        if use_entropy and ps.size >= 2:
+            U_t = -np.sum(ps * np.log(ps + 1e-12))
+        else:
+            U_t = 1.0 - float(ps.max())
+        U.append(float(U_t))
+    U = np.asarray(U, dtype=float)
+
+    if token_similarity_arr.size == 0:
+        sim = np.zeros_like(U)
+    else:
+        sim = token_similarity_arr[: U.size]
+        if sim.size < U.size:
+            fill_value = float(np.mean(sim)) if sim.size else 0.0
+            sim = np.pad(sim, (0, U.size - sim.size), constant_values=fill_value)
+
+    if sim_norm == "z":
+        sim_scaled = _safe_z(sim)
+        rel = 1.0 - 1.0 / (1.0 + np.exp(-sim_scaled))
+    elif sim_norm == "minmax":
+        sim_scaled = _safe_minmax(sim)
+        rel = 1.0 - sim_scaled
+    else:
+        rel = 1.0 - sim
+
+    weights = np.exp(rel / max(sar_temp, 1e-6))
+    weights /= np.sum(weights) + 1e-12
+
+    U_tail, tail_start = _tail_slice(U)
+    if U_tail.size == 0:
+        U_tail = U
+        tail_start = 0
+
+    w_tail = weights[tail_start:]
+    if w_tail.size == 0:
+        w_tail = weights
+    w_tail = w_tail / (np.sum(w_tail) + 1e-12)
+
+    sar_step = float(np.sum(w_tail * U_tail)) if U_tail.size else 0.0
+
+    sar_s = _norm_scalar(sar_step)
+    conf_s = _norm_scalar(conf_tail)
+    margin_s = _norm_scalar(m_robust) if margin_tail_vals.size else 0.0
+
+    if near_tie:
+        final_score = w_sar * sar_s + w_conf * conf_s - w_margin * margin_s
+        mode = "sar+conf+margin"
+    else:
+        final_score = w_sar * sar_s + w_conf * conf_s
+        mode = "sar+conf"
+
+    return {
+        "final_score": float(final_score),
+        "mode": mode,
+        "sar": {
+            "per_token_U": U_tail.tolist(),
+            "per_token_w": w_tail.tolist(),
+            "step_score": sar_step,
+        },
+        "margin": {
+            "per_step": margin_arr.tolist(),
+            "robust": m_robust,
+            "mean": m_mean,
+            "space": margin_space,
+        },
+        "conf": {
+            "tail_mean": conf_tail,
+            "mode": conf_mode,
+        },
+    }
 
 
 # -----------------------------

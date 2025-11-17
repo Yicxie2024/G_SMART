@@ -33,6 +33,7 @@ from transformers import AutoTokenizer
 # ==== UQHead: 新增依赖 ====
 from transformers import AutoModelForCausalLM, AutoTokenizer as HFAutoTokenizer
 from lm_polygraph.model_adapters import WhiteboxModelBasic
+from lm_polygraph.stat_calculators.extract_claims import Claim
 from luh.auto_uncertainty_head import AutoUncertaintyHead
 from luh.calculator_infer_luh import CalculatorInferLuh
 from luh.calculator_apply_uq_head import CalculatorApplyUQHead
@@ -55,11 +56,12 @@ def _ensure_uq_ctx(config: Config):
             _UQ_CTX["chat_template"] = getattr(config, "custom_chat_template", None)
         return
 
-    hf_tok = HFAutoTokenizer.from_pretrained(config.model_path, use_fast=True)
+    uq_model_path = getattr(config, "uq_model_path", config.model_path)
+    hf_tok = HFAutoTokenizer.from_pretrained(uq_model_path, use_fast=True)
     if hf_tok.pad_token is None:
         hf_tok.pad_token = hf_tok.eos_token
     hf_model = AutoModelForCausalLM.from_pretrained(
-        config.model_path, device_map="auto", torch_dtype="auto",
+        uq_model_path, device_map="auto", torch_dtype="auto",
     )
     wb = WhiteboxModelBasic(
         model=hf_model,
@@ -97,8 +99,10 @@ def _compute_uq_for_texts(convs: list[str], add_generation_prompt: bool,
                           continue_final_message: bool, beams: list[Beam], config: Config):
     """
     返回：
-      - overall_conf: 每个 beam 的整体“置信分” = -mean(token_UE[0:cur_len])，越大越好
-      - step_uq: 每个 beam 本轮“新增 tokens 的 UE 均值”（用于纠错触发）
+      - overall_conf: 每个 beam 的整体"置信分" = -mean(token_UE[0:cur_len])，越大越好
+      - step_uq: 每个 beam 本轮"新增 tokens 的 UE 均值"（用于纠错触发）
+    
+    注意：将每一步生成的文本段（step）视为一个 claim
     """
     _ensure_uq_ctx(config)
     wb = _UQ_CTX["wb"]
@@ -111,7 +115,49 @@ def _compute_uq_for_texts(convs: list[str], add_generation_prompt: bool,
         continue_final_message=continue_final_message,
         tokenize=False,
     )
+    
+    # 为每个 beam 创建 claims：每一步生成的文本段就是一个 claim
+    all_claims = []
+    for beam in beams:
+        beam_claims = []
+        if len(beam.history) > 0:
+            # 获取完整文本的 token ids（用于计算 token 位置）
+            full_text = beam.current_text
+            full_token_ids = wb.tokenizer.encode(full_text, add_special_tokens=False)
+            
+            # 为每个 step（history 中的每一项）创建一个 claim
+            current_pos = 0
+            for step_text in beam.history:
+                if not step_text.strip():
+                    continue
+                # 找到 step_text 在 full_text 中的位置
+                step_start = full_text.find(step_text, current_pos)
+                if step_start == -1:
+                    # 如果找不到，尝试从 current_pos 开始匹配
+                    step_start = full_text.find(step_text)
+                if step_start == -1:
+                    continue
+                
+                # 计算 step 对应的 token 位置
+                text_before_step = full_text[:step_start]
+                tokens_before = wb.tokenizer.encode(text_before_step, add_special_tokens=False)
+                step_tokens = wb.tokenizer.encode(step_text, add_special_tokens=False)
+                
+                # aligned_token_ids 是相对于完整文本的 token 位置（不包括 context）
+                # 在 CalculatorApplyUQHead 中会加上 context_length
+                aligned_token_ids = list(range(len(tokens_before), len(tokens_before) + len(step_tokens)))
+                
+                claim = Claim(
+                    claim_text=step_text,
+                    sentence=full_text,
+                    aligned_token_ids=aligned_token_ids
+                )
+                beam_claims.append(claim)
+                current_pos = step_start + len(step_text)
+        all_claims.append(beam_claims)
+    
     deps = {}
+    deps["claims"] = all_claims  # 添加 claims 到 deps
     deps.update(calc_infer(deps, texts=templated, model=wb))
     deps.update(calc_apply(deps, texts=templated, model=wb))
 
@@ -147,11 +193,13 @@ def _compute_uq_for_texts(convs: list[str], add_generation_prompt: bool,
         beam.uq_scores.append(step_score)
 
     return overall_conf, step_uq
+
+
 # ==== UQHead: 以上为新增 ====
 
 
 def _beam_search(
-    batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None, random_quotas_by_prompt: list[list[int]] = None, random_seed: int = None, random_max_iters_by_prompt: list[list[int]] = None,
+    batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None,
 ) -> tuple[list[Beam], int]:
     sampling_params = SamplingParams(
         temperature=config.temperature,
@@ -184,25 +232,8 @@ def _beam_search(
                     gen_update=[],
                     llm_tokens=[],
                 )
-            setattr(b, 'prompt_idx', p_idx)
             beams.append(b)
 
-    # If random quotas are provided, pre-sample a correction schedule per (prompt_idx, beam.index)
-    schedule_by_slot = {}
-    if random_quotas_by_prompt is not None:
-        _rng = np.random.default_rng(0 if random_seed is None else int(random_seed))
-        assert len(random_quotas_by_prompt) == len(batch_of_prompts)
-        for _p_idx, _quotas in enumerate(random_quotas_by_prompt):
-            assert len(_quotas) == config.n, 'quotas length must equal config.n'
-            for _i, _q in enumerate(_quotas):
-                _q = int(_q) if _q is not None else 0
-                max_iter = int(random_max_iters_by_prompt[_p_idx][_i]) if random_max_iters_by_prompt is not None else int(config.num_iterations)
-                _q = max(0, min(_q, max_iter))
-                if _q > 0 and max_iter > 0:
-                    _iters = _rng.choice(int(config.num_iterations), size=_q, replace=False)
-                    schedule_by_slot[(_p_idx, _i)] = set(int(x) for x in _iters.tolist())
-                else:
-                    schedule_by_slot[(_p_idx, _i)] = set()
     completed_beams: list[Beam] = []
     total_tokens = 0
     smart_done = False
@@ -215,12 +246,6 @@ def _beam_search(
         else:
             active_beams = [b for b in active_beams if not b.pruned]
             
-        for b in active_beams:
-            # only record the iterations that the active beams have appeared
-            if not hasattr(b, "iter_slots"):
-                b.iter_slots = []
-            b.iter_slots.append(iterate_idx)
-
         # Duplicate active beams to ensure that we have config.n beams per iteration
         if len(active_beams) != config.n:
             repeats = (config.n // len(active_beams)) + 1
@@ -304,13 +329,15 @@ def _beam_search(
             beams=active_beams,
             config=config,
         )
-        # 2) 将整体置信塞入 beam.all_scores 的“单列”结构，兼容下游 aggregate_scores
-        #    注意：我们约定 all_scores[0] 越大越好（= 不确定越低）
-        for beam, conf in zip(active_beams, overall_conf, strict=True):
-            beam.all_scores = [conf]
-
-        # 过滤掉已完成的（与原逻辑一致）
-        agg_scores = [[s[0]] for s, b in zip([b.all_scores for b in active_beams], active_beams) if not b.completed]
+        # 2) 将每个 step 的 uq 累积到 beam.all_scores（对齐 PRM 版本：累积每个 step 的分数）
+        #    注意：step_uq 是当前 step 的不确定性，越小越好
+        for beam, uq in zip(active_beams, step_uq, strict=True):
+            beam.all_scores.append(uq)
+        # 使用 aggregate_scores 聚合所有步骤的分数（对齐 PRM 版本）
+        agg_scores = [
+            [aggregate_scores(b.all_scores, config.agg_strategy)]
+            for b in active_beams if not b.completed
+        ]
         prev_active_beams = [b for idx, b in enumerate(prev_active_beams) if not active_beams[idx].completed]
         active_beams = [b for b in active_beams if not b.completed]
 
@@ -330,10 +357,8 @@ def _beam_search(
                     )
             active_beams = [active_beams[i] for i in unique_beam_dict.values()]
             prev_active_beams = [prev_active_beams[i] for i in unique_beam_dict.values()]
-            agg_scores = [agg_scores[i] for i in unique_beam_dict.values()]
-            # 同步 step_uq/overall_conf 的对齐（仅用于触发，不用于 agg）
-            # 简化起见，这里重新计算（也可以做索引筛选）
-            overall_conf, step_uq = _compute_uq_for_texts(
+            # 重新计算 step_uq 用于纠错触发（因为 active_beams 被过滤了）
+            _, step_uq = _compute_uq_for_texts(
                 convs=[build_conv(b.prompt, b.current_text, config.system_prompt) for b in active_beams],
                 add_generation_prompt=add_generation_prompt,
                 continue_final_message=continue_final_message,
@@ -350,28 +375,16 @@ def _beam_search(
             if idx not in top_indices:
                 beam.pruned = True
 
-        # 纠错触发：随机日程 or 基于 UHead 的“新增段 UE”阈值
-        if random_quotas_by_prompt is None:
-            # 阈值：绝对值或分位数
-            uq_th = getattr(config, "uq_threshold", 0.5)
-            use_q = getattr(config, "uq_use_quantile", False)
-            q = float(getattr(config, "uq_quantile", 0.8))
-            if use_q and len(top_indices) > 0:
-                th = float(np.quantile([step_uq[i] for i in top_indices], q))
-            else:
-                th = float(uq_th)
-            re_indices = [i for i in top_indices if step_uq[i] > th]
+        # 纠错触发：基于 UHead 的"新增段 UE"阈值
+        # 阈值：绝对值或分位数
+        uq_th = getattr(config, "uq_threshold", 0.5)
+        use_q = getattr(config, "uq_use_quantile", False)
+        q = float(getattr(config, "uq_quantile", 0.8))
+        if use_q and len(top_indices) > 0:
+            th = float(np.quantile([step_uq[i] for i in top_indices], q))
         else:
-            re_indices = []
-            for top_idx in top_indices:
-                b = prev_active_beams[top_idx]
-                if getattr(b, "completed", False):
-                    continue
-                key = (getattr(b, "prompt_idx", 0), getattr(b, "index", 0))
-                iters = schedule_by_slot.get(key)
-                if iters is not None and iterate_idx in iters:
-                    re_indices.append(top_idx)
-
+            th = float(uq_th)
+        re_indices = [i for i in top_indices if step_uq[i] > th]
         if len(re_indices) == 0:
             continue
 
@@ -411,27 +424,38 @@ def _beam_search(
             reprompts.append(beam.prompt)
             recompletions.append([beam.current_text])
 
-        # ==== UQHead: 纠错后，重算整体置信，更新 all_scores ====
-        overall_conf_after, _ = _compute_uq_for_texts(
+        # ==== UQHead: 纠错后，重算 step_uq，更新 all_scores 最后一个元素 ====
+        _, step_uq_after = _compute_uq_for_texts(
             convs=[build_conv(b.prompt, b.current_text, config.system_prompt) for b in re_beams],
             add_generation_prompt=add_generation_prompt,
             continue_final_message=continue_final_message,
             beams=re_beams,
             config=config,
         )
-        for beam, conf in zip(re_beams, overall_conf_after, strict=True):
-            beam.all_scores = [conf]
-
+        # 更新 all_scores 的最后一个元素为纠错后的 step_uq（对齐 PRM：更新最后一个 step 的分数）
+        # 注意：需要在更新前获取 before_uq，因为 re_beams 和 prev_active_beams 共享引用
         for i, (re_idx, beam) in enumerate(zip(re_indices, re_beams)):
+            # 先获取纠错前的 step_uq（在更新前）
+            before_uq = -1.0
+            if re_idx < len(prev_active_beams):
+                prev_beam = prev_active_beams[re_idx]
+                before_uq = float(prev_beam.all_scores[-1]) if len(prev_beam.all_scores) > 0 else -1.0
+            
+            # 更新 all_scores 的最后一个元素为纠错后的 step_uq
+            uq_after = float(step_uq_after[i]) if i < len(step_uq_after) else before_uq
+            if len(beam.all_scores) > 0:
+                beam.all_scores[-1] = uq_after
+            else:
+                beam.all_scores.append(uq_after)
+            
+            # 记录信息
             beam.smart_step.append(iterate_idx)
             beam.gen_update.append((active_beams[re_idx].next_texts[0], beam.next_texts[0]))
-            # 记录“PRM 更新”字段以兼容下游，但我们存 (before_conf, after_conf)
-            before_conf = float(agg_scores[re_idx][0]) if re_idx < len(agg_scores) else -1.0
-            beam.prm_update.append((before_conf, beam.all_scores[0]))
+            beam.prm_update.append((before_uq, uq_after))
             beam.llm_tokens.append(len(tokenizer.encode(beam.next_texts[0])))
             total_tokens += len(tokenizer.encode(beam.next_texts[0]))
             active_beams[re_idx] = beam
-
+        
     # 完成/收尾：用整体置信排序（越大越好）
     if config.sort_completed:
         completed_beams = sorted(
@@ -441,7 +465,6 @@ def _beam_search(
         )[: config.n]
     else:
         completed_beams = completed_beams[: config.n]
-
     if len(completed_beams) != config.n:
         repeats = (config.n // len(completed_beams)) + 1
         logger.debug(f"Extending completed_beams with {repeats} repetitions to reach size {config.n}")
@@ -461,38 +484,17 @@ def _beam_search(
 def smart_beam_search(examples, config: Config, slm: LLM, prm: PRM, llm: None):
     problems = examples["problem"]
 
-    # 回合 1：UHead-驱动的 SMART
+    # UHead-驱动的 SMART
     beam_results_main, _ = _beam_search(problems, config, slm, prm, llm)
     grouped_main = defaultdict(list)
     for b in beam_results_main:
         grouped_main[b.prompt].append(b)
 
-    # 构造“随机同配额”对照（保留）
-    quotas_by_prompt, max_iters_by_prompt = [], []
-    for p_idx, p in enumerate(problems):
-        beams_p = grouped_main[p]
-        quotas_by_prompt.append([len(getattr(b, "llm_tokens", [])) for b in beams_p])
-        max_iters_by_prompt.append(
-            [
-                (max(getattr(b, "iter_slots", [])) + 1) if getattr(b, "iter_slots", []) else 0
-                for b in beams_p
-            ]
-        )
-    rng_seed = getattr(config, "seed", None)
-    beam_results_rand, _ = _beam_search(
-        problems, config, slm, prm, llm,
-        random_quotas_by_prompt=quotas_by_prompt,
-        random_seed=rng_seed,
-        random_max_iters_by_prompt=max_iters_by_prompt,
-    )
-    grouped_rand = defaultdict(list)
-    for b in beam_results_rand:
-        grouped_rand[b.prompt].append(b)
 
     results = {
         "completions": [], "pred": [], "scores": [],
-        "completions_random": [], "pred_random_uniform": [],
-        "correction_counts": [], "correction_counts_random": [],
+        "llm_tokens": [],
+        "correction_counts": [],
     }
 
     for p in problems:
@@ -504,18 +506,7 @@ def smart_beam_search(examples, config: Config, slm: LLM, prm: PRM, llm: None):
         results["completions"].append(completions)
         results["pred"].append(pred)
         results["scores"].append(scores)
+        results["llm_tokens"].append([getattr(b, "llm_tokens", []) for b in beams])
         results["correction_counts"].append([len(getattr(b, "llm_tokens", [])) for b in beams])
 
-        beams_r = grouped_rand[p]
-        completions_r = [b.current_text for b in beams_r]
-        results["completions_random"].append(completions_r)
-        if len(completions_r) > 0:
-            rng = np.random.default_rng(rng_seed)
-            pred_r = completions_r[int(rng.integers(0, len(completions_r)))]
-        else:
-            pred_r = ""
-        results["pred_random_uniform"].append(pred_r)
-        results["correction_counts_random"].append([len(getattr(b, "llm_tokens", [])) for b in beams_r])
-
     return results
-

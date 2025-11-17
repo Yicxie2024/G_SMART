@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=smart-multi
-#SBATCH --nodelist=penelope
-#SBATCH --partition=gpu
-#SBATCH --qos=gpu-small
+#SBATCH --nodelist=scratchy
+#SBATCH --partition=yolo
+#SBATCH --qos=yolo
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
@@ -109,14 +109,7 @@ for OPTION in $(seq $START_OPTION $END_OPTION); do
   echo "=== Running OPTION=$OPTION ==="
   
   case "$OPTION" in
-    0) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=conf --uq_threshold=0.20 --dataset_start=51 --dataset_end=350 --run_random_baseline=false --run_llm_baseline=false --run_slm_baseline=false) ;;
-    1) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=conf --uq_threshold=0.40 --dataset_start=51 --dataset_end=350 --run_random_baseline=false --run_llm_baseline=false --run_slm_baseline=false) ;;
-    2) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=conf --uq_threshold=0.60 --dataset_start=51 --dataset_end=350 --run_random_baseline=false --run_llm_baseline=false --run_slm_baseline=false) ;;
-    3) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=conf --uq_threshold=0.70 --dataset_start=51 --dataset_end=350 --run_random_baseline=false --run_llm_baseline=false --run_slm_baseline=false) ;;
-    4) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=conf --uq_threshold=0.80 --dataset_start=51 --dataset_end=350 --run_random_baseline=false --run_llm_baseline=false --run_slm_baseline=false) ;;
-    5) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=conf --uq_threshold=0.85 --dataset_start=51 --dataset_end=350 --run_random_baseline=false --run_llm_baseline=false --run_slm_baseline=false) ;;
-    6) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=conf --uq_threshold=0.90 --dataset_start=51 --dataset_end=350 --run_random_baseline=false --run_llm_baseline=false --run_slm_baseline=false) ;;
-    7) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=conf --uq_threshold=0.95 --dataset_start=51 --dataset_end=350 --run_random_baseline=false --run_llm_baseline=false --run_slm_baseline=false) ;;
+    0) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=conf --temperature=0.7 --uq_threshold=0.9 --dataset_start=51 --dataset_end=500 --run_random_baseline=false --run_llm_baseline=false --run_slm_baseline=false --model_path=/storage/ukp/shared/shared_model_weights/models--Qwen2.5-14B-Instruct) ;;
     *) echo "Unknown OPTION=$OPTION. Valid options are 0-7." >&2; exit 1 ;;
   esac
 

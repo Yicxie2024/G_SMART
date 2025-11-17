@@ -80,11 +80,13 @@ export SEED=0
 # ============================================================================
 
 # 配置文件名称（位于 configs/ 文件夹中）
-#CONFIG_NAME="beam_search_conf_bbh.sh"
+#CONFIG_NAME="beam_search_conf_bbh.sh" 304243
 #CONFIG_NAME="beam_search_cocoa_msp_bbh.sh" 303436
-#CONFIG_NAME="beam_search_ppl_bbh.sh" 303593
-#CONFIG_NAME="beam_search_top2_margin_bbh.sh" 303590
-#CONFIG_NAME="beam_search_token_entropy_bbh.sh" 303592
+#CONFIG_NAME="beam_search_ppl_bbh.sh" 
+#CONFIG_NAME="beam_search_top2_margin_bbh.sh"
+#CONFIG_NAME="beam_search_token_entropy_bbh.sh" 
+CONFIG_NAME="beam_search_sar_bbh.sh" 
+#CONFIG_NAME="beam_search_random_bbh.sh" 
 
 # ============================================================================
 # 加载配置

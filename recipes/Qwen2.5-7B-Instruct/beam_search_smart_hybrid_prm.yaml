@@ -1,0 +1,29 @@
+# Hybrid SMART Correction Configuration (UQ + PRM)
+# Combines uncertainty quantification with process reward model for two-stage correction
+# refer to src/sal/config.py for more options
+
+# Model paths
+model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-7B-Instruct  # LLM for correction
+draft_model_path: /storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct  # SLM for generation
+
+# Chat template
+custom_chat_template: null
+
+# Search settings
+approach: beam_search
+search_batch_size: 1  # DO NOT CHANGE!
+num_iterations: 40
+seed: 0
+smart_search: true
+n: 16
+beam_width: 1
+
+# Hybrid correction method
+score_method: hybrid_prm
+
+# Additional settings
+filter_duplicates: true
+
+# Output settings
+# output_dir will be automatically set to: 
+# /storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/hybrid_prm/

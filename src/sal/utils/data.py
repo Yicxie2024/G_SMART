@@ -252,6 +252,26 @@ def get_dataset(config: Config) -> Dataset:
 
 
 def save_dataset(dataset, config):
+    def _extract_model_tag(model_path: str) -> str:
+        if not model_path:
+            return "unknown"
+        name = os.path.basename(model_path.rstrip("/"))
+        if name.startswith("models--"):
+            name = name[len("models--"):]
+        for suffix in ["-Instruct", "-instruction", "-chat", "-Chat", "-base", "-Base"]:
+            if name.endswith(suffix):
+                name = name[: -len(suffix)]
+                break
+        return name or "unknown"
+
+    model_tag = _extract_model_tag(getattr(config, "model_path", ""))
+    draft_model_tag = (
+        _extract_model_tag(getattr(config, "draft_model_path", ""))
+        if getattr(config, "draft_model_path", None)
+        else None
+    )
+    draft_suffix = f"_draft-{draft_model_tag}" if draft_model_tag else ""
+
     if config.push_to_hub:
         # Since concurrent pushes can get rejected by the Hub, we make several attempts to push the dataset with try/except
         for _ in range(20):
@@ -284,16 +304,28 @@ def save_dataset(dataset, config):
     else:
         if config.output_dir is None:
             # Set specific output directory for special score methods
-            if config.score_method == 'random_score':
+            if getattr(config, 'run_slm_only_baseline', False):
+                config.output_dir = "/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/slm_only"
+            elif getattr(config, 'run_llm_only_baseline', False):
+                config.output_dir = "/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/llm_only"
+            elif config.score_method == 'random_score':
                 config.output_dir = "/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/random_score"
             elif config.score_method == 'token_sar':
                 config.output_dir = "/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/token_sar"
+            elif config.score_method == 'token_sar_conf_margin':
+                config.output_dir = "/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/token_sar_conf_margin"
+            elif config.score_method == 'hybrid_prm':
+                config.output_dir = "/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/hybrid_prm"
             else:
                 config.output_dir = f"/storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/outputs/smart/{config.score_method}"
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
         
         # Name the folder based on the approach used
-        if config.draft_model_path is not None:
+        if getattr(config, 'run_slm_only_baseline', False):
+            folder_name = "smart_slm_only"
+        elif getattr(config, 'run_llm_only_baseline', False):
+            folder_name = "smart_llm_only"
+        elif config.draft_model_path is not None:
             if config.score_method == 'prm':
                 folder_name = "smart_prm"
             elif config.score_method == 'conf':
@@ -308,8 +340,14 @@ def save_dataset(dataset, config):
                 folder_name = "smart_token_entropy"
             elif config.score_method == 'token_sar':
                 folder_name = "smart_token_sar"
+            elif config.score_method == 'token_sar_conf_margin':
+                folder_name = "smart_token_sar_conf_margin"
             elif config.score_method == 'random_score':
                 folder_name = "smart_random_score"
+            elif config.score_method == 'hybrid_prm':
+                folder_name = "smart_hybrid_prm"
+            elif config.score_method == 'uhead':
+                folder_name = "smart_uhead"
             # if score_methode starts with cocoa, then folder_name is smart_cocoa
             elif config.score_method.startswith('cocoa'):
                 folder_name = "smart_cocoa"
@@ -328,6 +366,12 @@ def save_dataset(dataset, config):
                 folder_name = "base_token_entropy"
             elif config.score_method == 'token_sar':
                 folder_name = "base_token_sar"
+            elif config.score_method == 'token_sar_conf_margin':
+                folder_name = "base_token_sar_conf_margin"
+            elif config.score_method == 'hybrid_prm':
+                folder_name = "base_hybrid_prm"
+            elif config.score_method == 'uhead':
+                folder_name = "base_uhead"
         # Name the appoarch in likelihood score
         if config.beam_width == 1:
             approach_fn = "best_of_n"
@@ -341,18 +385,74 @@ def save_dataset(dataset, config):
         folder_path = Path(config.output_dir) / folder_name
         folder_path.mkdir(parents=True, exist_ok=True)
 
+        # Prepare additional parameters for filename (prm_threshold if available)
+        prm_threshold_str = ""
+        if hasattr(config, 'prm_threshold'):
+            prm_threshold = getattr(config, 'prm_threshold', None)
+            if prm_threshold is not None:
+                prm_threshold_str = f"_prm{prm_threshold}"
+
+        # Include seed in filename when available
+        seed = getattr(config, 'seed', None)
+        seed_suffix = f"_seed-{seed}" if seed is not None else ""
+        
         # Save the dataset to a jsonl file by splitting the dataset or not
-        if config.dataset_start is not None and config.dataset_end is not None:
+        if getattr(config, 'run_slm_only_baseline', False):
+            # SLM-only baseline: use threshold format but with None/0 values since no correction is used
+            # Get threshold values from config (use defaults if not set)
+            threshold_val = getattr(config, 'threshold', 0.1)
+            uq_threshold_val = getattr(config, 'uq_threshold', 0.15)
+            if config.dataset_start is not None and config.dataset_end is not None:
+                filename = f"beam_search_dataset-{dataset_name_clean}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{threshold_val}_threshold_uq-{uq_threshold_val}_None_datasplit_{config.dataset_start}-{config.dataset_end}_method-slm_only_use_default_beam_search-False{seed_suffix}_model-{model_tag}{draft_suffix}.jsonl"
+            else:
+                filename = f"beam_search_dataset-{dataset_name_clean}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{threshold_val}_threshold_uq-{uq_threshold_val}_None_datasplit_None_method-slm_only_use_default_beam_search-False{seed_suffix}_model-{model_tag}{draft_suffix}.jsonl"
             dataset.to_json(
-                f"{config.output_dir}/{folder_name}/{approach_fn}_dataset-{dataset_name_clean}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_threshold_uq-{config.uq_threshold}_{config.num_samples}_datasplit_{config.dataset_start}-{config.dataset_end}_method-{config.score_method}_use_default_beam_search-{config.use_default_beam_search}.jsonl", lines=True
+                f"{config.output_dir}/{folder_name}/{filename}", lines=True
             )
             logger.info(
-                f"Saved completions to {config.output_dir}/{folder_name}/{approach_fn}_dataset-{dataset_name_clean}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_threshold_uq-{config.uq_threshold}_{config.num_samples}_datasplit_{config.dataset_start}-{config.dataset_end}_method-{config.score_method}_use_default_beam_search-{config.use_default_beam_search}.jsonl"
+                f"Saved completions to {config.output_dir}/{folder_name}/{filename}"
+            )
+        elif getattr(config, 'run_llm_only_baseline', False):
+            # LLM-only baseline: use threshold format but with None/0 values since no correction is used
+            # Get threshold values from config (use defaults if not set)
+            threshold_val = getattr(config, 'threshold', 0.1)
+            uq_threshold_val = getattr(config, 'uq_threshold', 0.15)
+            if config.dataset_start is not None and config.dataset_end is not None:
+                filename = f"beam_search_dataset-{dataset_name_clean}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{threshold_val}_threshold_uq-{uq_threshold_val}_None_datasplit_{config.dataset_start}-{config.dataset_end}_method-llm_only_use_default_beam_search-False{seed_suffix}_model-{model_tag}{draft_suffix}.jsonl"
+            else:
+                filename = f"beam_search_dataset-{dataset_name_clean}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{threshold_val}_threshold_uq-{uq_threshold_val}_None_datasplit_None_method-llm_only_use_default_beam_search-False{seed_suffix}_model-{model_tag}{draft_suffix}.jsonl"
+            dataset.to_json(
+                f"{config.output_dir}/{folder_name}/{filename}", lines=True
+            )
+            logger.info(
+                f"Saved completions to {config.output_dir}/{folder_name}/{filename}"
+            )
+        elif config.dataset_start is not None and config.dataset_end is not None:
+            # Filename: dataset_method_uqthreshold[prm_threshold]_start-end
+            temperature = getattr(config, "temperature", None)
+            temp_suffix = f"_T-{temperature}" if temperature is not None else ""
+            filename = (
+                f"{dataset_name_clean}_{config.score_method}_uq{config.uq_threshold}"
+                f"{prm_threshold_str}{temp_suffix}{seed_suffix}_{config.dataset_start}-{config.dataset_end}_model-{model_tag}.jsonl"
+            )
+            filename = filename.replace(".jsonl", f"{draft_suffix}.jsonl")
+            dataset.to_json(
+                f"{config.output_dir}/{folder_name}/{filename}", lines=True
+            )
+            logger.info(
+                f"Saved completions to {config.output_dir}/{folder_name}/{filename}"
             )
         else:
+            # Filename without start-end
+            temperature = getattr(config, "temperature", None)
+            temp_suffix = f"_T-{temperature}" if temperature is not None else ""
+            filename = (
+                f"{dataset_name_clean}_{config.score_method}_uq{config.uq_threshold}"
+                f"{prm_threshold_str}{temp_suffix}{seed_suffix}_model-{model_tag}{draft_suffix}.jsonl"
+            )
             dataset.to_json(
-                    f"{config.output_dir}/{folder_name}/{approach_fn}_dataset-{dataset_name_clean}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_threshold_uq-{config.uq_threshold}_{config.num_samples}_method-{config.score_method}_use_default_beam_search-{config.use_default_beam_search}.jsonl", lines=True
-                )
+                f"{config.output_dir}/{folder_name}/{filename}", lines=True
+            )
             logger.info(
-                f"Saved completions to {config.output_dir}/{folder_name}/{approach_fn}_dataset-{dataset_name_clean}_completions_T-{config.temperature}--top_p-{config.top_p}--n-{config.n}--m-{config.beam_width}--iters-{config.num_iterations}--look-{config.lookahead}--seed-{config.seed}--agg_strategy--{config.agg_strategy}_threshold-{config.threshold}_threshold_uq-{config.uq_threshold}_{config.num_samples}_method-{config.score_method}_use_default_beam_search-{config.use_default_beam_search}.jsonl"
+                f"Saved completions to {config.output_dir}/{folder_name}/{filename}"
             )

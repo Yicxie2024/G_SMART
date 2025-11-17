@@ -67,6 +67,18 @@ try:
     from .beam_search_smart_uhead import smart_beam_search_uhead as beam_search_smart_uhead
 except Exception:
     pass
+try:
+    from .beam_search_slm_only import smart_beam_search_slm_only as beam_search_slm_only
+except Exception:
+    pass
+try:
+    from .beam_search_llm_only import smart_beam_search_llm_only as beam_search_llm_only
+except Exception:
+    pass
+try:
+    from .beam_search_smart_prm_only import smart_beam_search as beam_search_smart_prm_only
+except Exception:
+    pass
 # --- utils ---
 try:
     from .utils import *

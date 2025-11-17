@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=smart-multi
-#SBATCH --nodelist=minerva
-#SBATCH --partition=yolo
-#SBATCH --qos=yolo
+#SBATCH --nodelist=scratchy
+#SBATCH --partition=gpu
+#SBATCH --qos=gpu-small
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
@@ -109,12 +109,14 @@ for OPTION in $(seq $START_OPTION $END_OPTION); do
   echo "=== Running OPTION=$OPTION ==="
   
   case "$OPTION" in
-    0) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.05  --dataset_start=0 --dataset_end=1000 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
-    1) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.1  --dataset_start=0 --dataset_end=1000 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
-    2) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.2  --dataset_start=0 --dataset_end=1000 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
-    3) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.5  --dataset_start=0 --dataset_end=1000 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
-    4) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=2.0  --dataset_start=0 --dataset_end=1000 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
-    5) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=2.5  --dataset_start=0 --dataset_end=1000 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
+    0) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.0  --dataset_start=0 --seed=42 --dataset_end=500 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
+    1) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.0  --dataset_start=0 --seed=1 --dataset_end=500 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
+    2) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.0  --dataset_start=0 --seed=43 --dataset_end=500 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
+    3) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.0  --dataset_start=0 --seed=3 --dataset_end=500 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
+    4) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.0  --dataset_start=0 --seed=44 --dataset_end=500 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
+    5) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.0  --dataset_start=0 --seed=5 --dataset_end=500 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
+    6) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.0  --dataset_start=0 --seed=46 --dataset_end=500 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
+    7) CONFIG=recipes/Qwen2.5-7B-Instruct/beam_search_smart_mmlu_pro_conf.yaml; EXTRA=(--n=1 --beam_width=16 --score_method=perplexity --dataset_split=test --uq_threshold=1.0  --dataset_start=0 --seed=7 --dataset_end=500 --run_slm_baseline=False --run_llm_baseline=False -run_random_baseline=False) ;;
     *) echo "Unknown OPTION=$OPTION. Valid options are 0-7." >&2; exit 1 ;;
   esac
 
