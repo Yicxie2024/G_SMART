@@ -115,9 +115,10 @@ def plan_uhead_allocation(gpu_memory_gb: float):
         strategy = "80GB: UHead (SLM + LLM + UHead buffers, ~75%)"
     elif gpu_memory_gb >= 35:
         # 40GB class GPUs
-        vllm_ratio = 0.30  # ~12GB for draft model + KV cache
-        llm_memory_gb = max(12, int(gpu_memory_gb * 0.28))  # ~11-12GB for main LLM
-        uhead_memory_gb = max(11, int(gpu_memory_gb * 0.28))  # Reserve similar budget for UHead
+        # Qwen2.5-7B-Instruct needs 16-18GB to fully fit in GPU without offload
+        vllm_ratio = 0.30  # ~14GB for draft model + KV cache (30% of 47.4GB)
+        llm_memory_gb = max(18, int(gpu_memory_gb * 0.38))  # At least 18GB for main LLM to avoid offload
+        uhead_memory_gb = max(10, int(gpu_memory_gb * 0.22))  # Reserve for UHead passes/buffers (~10GB)
         strategy = "40GB: UHead (SLM + LLM + UHead buffers, ~82%)"
     else:
         # Smaller GPUs: fall back to conservative shared budgeting
@@ -539,13 +540,61 @@ def main():
             )
         elif config.score_method == "uhead":
             prm = None
+            
+            # Load uhead and create UHeadScorer
+            from luh import AutoUncertaintyHead
+            from sal.search.beam_search_smart_uhead import UHeadScorer
+            from transformers import AutoTokenizer
+            
+            # Determine which model to use for uhead (uq_model_path if specified, otherwise model_path)
+            uhead_base_model_path = getattr(config, "uq_model_path", None) or config.model_path
+            logger.info(f"Loading base model for uhead from: {uhead_base_model_path}")
+            
+            # Load base model for uhead (should match the uhead's base model)
+            # For 40GB GPUs, set max_memory limit to prevent OOM
+            uhead_load_kwargs = {
+                "device_map": "auto",
+                "torch_dtype": torch.bfloat16,
+            }
+            # Only set max_memory for 40GB GPUs (gpu_memory_gb > 35 and <= 70) with uhead method
+            if gpu_memory_gb > 35 and gpu_memory_gb <= 70 and uhead_memory_gb > 0:
+                max_memory_map = {i: f"{uhead_memory_gb}GiB" for i in range(num_gpus or 1)}
+                uhead_load_kwargs["max_memory"] = max_memory_map
+                logger.info(f"Setting max_memory={uhead_memory_gb}GB for UHead base model (40GB GPU)")
+            
+            uhead_base_llm = AutoModelForCausalLM.from_pretrained(
+                uhead_base_model_path,
+                **uhead_load_kwargs,
+            ).eval()
+            
+            # Load tokenizer
+            uhead_tokenizer = AutoTokenizer.from_pretrained(uhead_base_model_path)
+            if uhead_tokenizer.pad_token is None:
+                uhead_tokenizer.pad_token = uhead_tokenizer.eos_token
+            
+            # Load uhead
+            uhead_path = getattr(config, "uq_head_path", None)
+            if uhead_path is None:
+                raise ValueError("uq_head_path must be specified when using uhead score_method")
+            logger.info(f"Loading uhead from: {uhead_path}")
+            uhead = AutoUncertaintyHead.from_pretrained(uhead_path, base_model=uhead_base_llm)
+            
+            # Create UHeadScorer
+            uhead_scorer = UHeadScorer(
+                llm=uhead_base_llm,
+                uhead=uhead,
+                tokenizer=uhead_tokenizer,
+                config=config,
+                device="cuda",
+            )
+            logger.info("UHeadScorer created successfully")
 
             dataset = get_dataset(config)
             dataset = dataset.map(
                 approach_fn,
                 batched=True,
                 batch_size=config.search_batch_size,
-                fn_kwargs={"config": config, "slm": slm, "prm": prm, "llm": llm},
+                fn_kwargs={"config": config, "slm": slm, "uhead_scorer": uhead_scorer, "llm": llm},
                 desc="Running search",
                 load_from_cache_file=False,
             )

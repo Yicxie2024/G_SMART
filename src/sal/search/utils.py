@@ -187,6 +187,7 @@ def generate_k_steps_for_llm(
     llm: LLM,
     config: Config,
     beam_width: int,
+    use_stop_criteria: bool = True,
 ) -> list[Beam]:
     gen_results = []
     for i, text in enumerate(templated_convs):
@@ -202,7 +203,7 @@ def generate_k_steps_for_llm(
             )
             gen_results.append(gen_result)
             
-    stopping_criteria=StopStringCriteria(stop_strings="\n\n", tokenizer=tokenizer)
+    stopping_criteria = StopStringCriteria(stop_strings="\n\n", tokenizer=tokenizer) if use_stop_criteria else None
     generation_config = GenerationConfig(
         do_sample=True,
         temperature=config.temperature,
@@ -230,11 +231,13 @@ def generate_k_steps_for_llm(
             input_ids = tokenizer(gen_prompt, return_tensors="pt").to(llm.device)
             # Generate just the next step using large LLM
             new_step = ""
-            new_ids = llm.generate(
+            generate_kwargs = {
                 **input_ids,
-                stopping_criteria=[stopping_criteria],
-                generation_config=generation_config,
-            )[:, input_ids["input_ids"].shape[1]:]
+                "generation_config": generation_config,
+            }
+            if stopping_criteria is not None:
+                generate_kwargs["stopping_criteria"] = [stopping_criteria]
+            new_ids = llm.generate(**generate_kwargs)[:, input_ids["input_ids"].shape[1]:]
             new_step = tokenizer.decode(new_ids[0], skip_special_tokens=True)
             
             # Handle empty generation (model immediately stops or generates only special tokens)

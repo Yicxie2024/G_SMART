@@ -91,11 +91,12 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None
                 )
 
         if iterate_idx == config.num_iterations - 1:
-            # Last iteration, generate to EOS
+            # Last iteration, generate to EOS (remove stop conditions)
             sampling_params = SamplingParams(
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
                 top_p=config.top_p,
+                stop=[],  # Remove stop conditions to ensure generation completes
                 n=1,
             )
 
@@ -145,6 +146,13 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None
                 or beam.next_texts[0] == ""
             ):
                 beam.completed = True
+                completed_beams.append(beam)
+            elif iterate_idx == config.num_iterations - 1:
+                # Last iteration: force completion even if stop condition was triggered
+                beam.completed = True
+                if beam.stop_reasons[0] not in ["EOS", "length"]:
+                    # Mark as completed due to reaching max iterations
+                    beam.stop_reasons = ["max_iterations"]
                 completed_beams.append(beam)
             prompts.append(beam.prompt)
             completions.append([beam.current_text])
@@ -224,8 +232,10 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None
             tokenize=False,
         )
         lookahead = 0 if iterate_idx == config.num_iterations - 1 else config.lookahead
+        # On last iteration, disable stop criteria to ensure generation completes
+        use_stop_criteria = iterate_idx != config.num_iterations - 1
         gen_results = generate_k_steps_for_llm(
-            tokenizer, templated_convs, lookahead, llm, config, 1
+            tokenizer, templated_convs, lookahead, llm, config, 1, use_stop_criteria=use_stop_criteria
         )
 
         reprompts, recompletions = [], []
@@ -243,6 +253,13 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None
                 or beam.next_texts[0] == ""
             ):
                 beam.completed = True
+                completed_beams.append(beam)
+            elif iterate_idx == config.num_iterations - 1:
+                # Last iteration: force completion even if stop condition was triggered
+                beam.completed = True
+                if beam.stop_reasons[0] not in ["EOS", "length"]:
+                    # Mark as completed due to reaching max iterations
+                    beam.stop_reasons = ["max_iterations"]
                 completed_beams.append(beam)
             reprompts.append(beam.prompt)
             recompletions.append([beam.current_text])
@@ -264,7 +281,18 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None
             beam.llm_tokens.append(len(tokenizer.encode(beam.next_texts[0])))
             total_tokens += len(tokenizer.encode(beam.next_texts[0]))
             active_beams[re_idx] = beam
-        
+    
+    # After all iterations, mark any remaining active beams as completed
+    # This ensures we always have completed beams, especially for n=1 case
+    for beam in active_beams:
+        if not beam.completed:
+            beam.completed = True
+            if beam.stop_reasons is None or len(beam.stop_reasons) == 0:
+                beam.stop_reasons = ["max_iterations"]
+            elif beam.stop_reasons[0] not in ["EOS", "length"]:
+                beam.stop_reasons = ["max_iterations"]
+            completed_beams.append(beam)
+    
     # Filter completed beams for those with top config.n scores
     if config.sort_completed:
         completed_beams = sorted(
@@ -275,11 +303,15 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, prm: PRM, llm: None
     else:
         completed_beams = completed_beams[: config.n]
 
-    if len(completed_beams) != config.n:
+    # Ensure we have exactly config.n beams (duplicate if needed)
+    # Note: completed_beams should never be empty because:
+    # 1. In the last iteration, all active_beams are force-completed (line 150-156)
+    # 2. After the loop, any remaining active_beams are force-completed (line 287-294)
+    if len(completed_beams) < config.n:
         # If we don't have enough completed_beams, duplicate until we reach config.n
         repeats = (config.n // len(completed_beams)) + 1
         logger.debug(
-            f"Extending completed_beams with {repeats} repetitions to reach size {config.n}"
+            f"Extending completed_beams from {len(completed_beams)} to {config.n} with {repeats} repetitions"
         )
         extended_completed_beams = [
             copy.deepcopy(b) for b in (completed_beams * repeats)[: config.n]
@@ -310,7 +342,7 @@ def smart_beam_search(examples, config: Config, slm: LLM, prm: PRM, llm: None):
     for results in beam_results:
         grouped_results[results.prompt].append(results)
 
-    results = {"completions": [], "pred": [], "scores": [], "llm_tokens": [], "prm_update": []}
+    results = {"completions": [], "pred": [], "scores": [], "llm_tokens": [], "prm_update": [], "smart_step": [], "total_tokens": []}
     tokenizer = slm.get_tokenizer()
 
     for p in problems:
@@ -322,9 +354,14 @@ def smart_beam_search(examples, config: Config, slm: LLM, prm: PRM, llm: None):
         ])]
         llm_tokens = [b.llm_tokens for b in beams]
         prm_updates = [getattr(b, "prm_update", []) for b in beams]
+        smart_steps = [getattr(b, "smart_step", []) for b in beams]
+        # Calculate total tokens for each beam: sum of completion_tokens (draft model) + sum of llm_tokens (corrections)
+        total_tokens_list = [sum(getattr(b, "completion_tokens", [])) + sum(getattr(b, "llm_tokens", [])) for b in beams]
         results["completions"].append(completions)
         results["pred"].append(pred)
         results["scores"].append(scores)
         results["llm_tokens"].append(llm_tokens)
         results["prm_update"].append(prm_updates)
+        results["smart_step"].append(smart_steps)
+        results["total_tokens"].append(total_tokens_list)
     return results

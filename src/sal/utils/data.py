@@ -385,13 +385,6 @@ def save_dataset(dataset, config):
         folder_path = Path(config.output_dir) / folder_name
         folder_path.mkdir(parents=True, exist_ok=True)
 
-        # Prepare additional parameters for filename (prm_threshold if available)
-        prm_threshold_str = ""
-        if hasattr(config, 'prm_threshold'):
-            prm_threshold = getattr(config, 'prm_threshold', None)
-            if prm_threshold is not None:
-                prm_threshold_str = f"_prm{prm_threshold}"
-
         # Include seed in filename when available
         seed = getattr(config, 'seed', None)
         seed_suffix = f"_seed-{seed}" if seed is not None else ""
@@ -428,12 +421,14 @@ def save_dataset(dataset, config):
                 f"Saved completions to {config.output_dir}/{folder_name}/{filename}"
             )
         elif config.dataset_start is not None and config.dataset_end is not None:
-            # Filename: dataset_method_uqthreshold[prm_threshold]_start-end
+            # Filename: dataset_method_uqthreshold_th{threshold}_start-end
             temperature = getattr(config, "temperature", None)
             temp_suffix = f"_T-{temperature}" if temperature is not None else ""
+            threshold_val = getattr(config, 'threshold', None)
+            threshold_suffix = f"_th{threshold_val}" if threshold_val is not None else ""
             filename = (
                 f"{dataset_name_clean}_{config.score_method}_uq{config.uq_threshold}"
-                f"{prm_threshold_str}{temp_suffix}{seed_suffix}_{config.dataset_start}-{config.dataset_end}_model-{model_tag}.jsonl"
+                f"{threshold_suffix}{temp_suffix}{seed_suffix}_{config.dataset_start}-{config.dataset_end}_model-{model_tag}.jsonl"
             )
             filename = filename.replace(".jsonl", f"{draft_suffix}.jsonl")
             dataset.to_json(
@@ -443,12 +438,14 @@ def save_dataset(dataset, config):
                 f"Saved completions to {config.output_dir}/{folder_name}/{filename}"
             )
         else:
-            # Filename without start-end
+            # Filename without start-end: dataset_method_uqthreshold_th{threshold}
             temperature = getattr(config, "temperature", None)
             temp_suffix = f"_T-{temperature}" if temperature is not None else ""
+            threshold_val = getattr(config, 'threshold', None)
+            threshold_suffix = f"_th{threshold_val}" if threshold_val is not None else ""
             filename = (
                 f"{dataset_name_clean}_{config.score_method}_uq{config.uq_threshold}"
-                f"{prm_threshold_str}{temp_suffix}{seed_suffix}_model-{model_tag}{draft_suffix}.jsonl"
+                f"{threshold_suffix}{temp_suffix}{seed_suffix}_model-{model_tag}{draft_suffix}.jsonl"
             )
             dataset.to_json(
                 f"{config.output_dir}/{folder_name}/{filename}", lines=True

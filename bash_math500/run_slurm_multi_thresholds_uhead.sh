@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=smart-uhead
-#SBATCH --nodelist=moe
-#SBATCH --partition=yolo
-#SBATCH --qos=yolo
+#SBATCH --nodelist=scratchy
+#SBATCH --partition=gpu
+#SBATCH --qos=gpu-small
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
@@ -88,9 +88,28 @@ for OPTION in $(seq $START_OPTION $END_OPTION); do
   case "$OPTION" in
     0)
       EXTRA_ARGS=(
+        --threshold 0.93
         --uq_threshold 0.9
         --dataset_start 0
-        --dataset_end 1
+        --dataset_end 500
+        --uq_head_path /storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/SMART/src/sal/models/uhead_Qwen2.5-1.5B-Instruct_6epochs
+      )
+      ;;
+    1) 
+      EXTRA_ARGS=(
+        --threshold 0.95
+        --uq_threshold 0.9
+        --dataset_start 0
+        --dataset_end 500
+        --uq_head_path /storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/SMART/src/sal/models/uhead_Qwen2.5-1.5B-Instruct_6epochs
+      )
+      ;;
+    2)
+      EXTRA_ARGS=(
+        --threshold 0.97
+        --uq_threshold 0.9
+        --dataset_start 0
+        --dataset_end 500
         --uq_head_path /storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/SMART/src/sal/models/uhead_Qwen2.5-1.5B-Instruct_6epochs
       )
       ;;
