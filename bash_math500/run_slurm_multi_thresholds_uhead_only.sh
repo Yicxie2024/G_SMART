@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=smart-prm-only
-#SBATCH --nodelist=minerva
-#SBATCH --partition=yolo
-#SBATCH --qos=yolo
+#SBATCH --job-name=smart-uhead-only
+#SBATCH --nodelist=scratchy
+#SBATCH --partition=gpu
+#SBATCH --qos=gpu-small
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
@@ -60,28 +60,26 @@ fi
 
 echo "=== Running options $START_OPTION to $END_OPTION sequentially ==="
 
-# Shared arguments for all PRM-only SMART runs
+# Shared arguments for all uHead-only SMART runs (no vllm, uhead as both slm and scorer)
+# NOTE: --uq_model_path controls which base LLM the UHead attaches to (kept at 1.5B).
+# NOTE: --use_uhead_only enables uhead-only mode (no vllm)
 BASE_ARGS=(
   --approach beam_search
   --smart_search true
-  --score_method prm
-  --use_prm_only true
+  --score_method uhead
+  --use_uhead_only true
   --model_path /storage/ukp/shared/shared_model_weights/models--Qwen2.5-7B-Instruct
-  --draft_model_path /storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct
+  --uq_model_path /storage/ukp/shared/shared_model_weights/models--Qwen2.5-1.5B-Instruct
   --filter_duplicates true
-  --dataset_name TIGER-Lab/MMLU-Pro
-  --dataset_split test
-  --data_name mmlu_pro
-  --max_tokens 4096
+  --dataset_name HuggingFaceH4/MATH-500
   --search_batch_size 1
   --n 1
   --seed 0
-  --beam_width 1
+  --beam_width 16
   --num_iterations 40
   --run_random_baseline false
   --run_llm_baseline false
   --run_slm_baseline false
-  --system_prompt "You are Qwen, created by Alibaba Cloud. You are a helpful assistant. Answer the following multiple-choice question. You will be given several answer choices labeled with letters (A), (B), (C), (D), etc. Provide step-by-step reasoning before selecting your answer. Conclude with: Therefore, the answer is (X) where X is the option letter (A, B, C, D, E, F, G, H, I, or J)."
 )
 
 # Option-specific overrides. Add/edit cases as needed.
@@ -91,30 +89,29 @@ for OPTION in $(seq $START_OPTION $END_OPTION); do
   case "$OPTION" in
     0)
       EXTRA_ARGS=(
-        --threshold 0.9
+        --threshold 0.93
+        --uq_threshold 0.9
         --dataset_start 0
-        --dataset_end 500
+        --dataset_end 50
+        --uq_head_path /storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/SMART/src/sal/models/uhead_Qwen2.5-1.5B-Instruct_6epochs
       )
       ;;
-    1)
+    1) 
       EXTRA_ARGS=(
-        --threshold 0.8
+        --threshold 0.95
+        --uq_threshold 0.9
         --dataset_start 0
         --dataset_end 500
+        --uq_head_path /storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/SMART/src/sal/models/uhead_Qwen2.5-1.5B-Instruct_6epochs
       )
       ;;
     2)
       EXTRA_ARGS=(
-        --threshold 0.6
+        --threshold 0.97
+        --uq_threshold 0.9
         --dataset_start 0
         --dataset_end 500
-      )
-      ;;
-    3)
-      EXTRA_ARGS=(
-        --threshold 0.3
-        --dataset_start 0
-        --dataset_end 500
+        --uq_head_path /storage/ukp/work/xie12/uncertainty-guided-reasoning/UQ_Guided_Router/SMART/src/sal/models/uhead_Qwen2.5-1.5B-Instruct_6epochs
       )
       ;;
     *)

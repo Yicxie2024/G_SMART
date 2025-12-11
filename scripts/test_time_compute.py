@@ -49,6 +49,7 @@ from sal.search import (
     beam_search_smart_prm_only,
 )
 from sal.search.beam_search_smart_uhead import smart_beam_search as beam_search_smart_uhead
+from sal.search.beam_search_smart_uhead_only import smart_beam_search as beam_search_smart_uhead_only
 from sal.search.beam_search_smart_cocoa import smart_beam_search_cocoa as beam_search_smart_cocoa
 from sal.search.beam_search_smart_cocoa_default import smart_beam_search_cocoa_default as beam_search_smart_cocoa_default
 from sal.search.beam_search_smart_cocoa_multi_threshold import smart_beam_search_cocoa_multi_threshold as beam_search_smart_cocoa_multi_threshold
@@ -72,6 +73,7 @@ APPROACHES = {
     "beam_search_smart_cocoa_default": beam_search_smart_cocoa_default,
     "beam_search_smart_cocoa_multi_threshold": beam_search_smart_cocoa_multi_threshold,
     "beam_search_smart_uhead": beam_search_smart_uhead,
+    "beam_search_smart_uhead_only": beam_search_smart_uhead_only,
     "beam_search_slm_only": beam_search_slm_only,
     "beam_search_llm_only": beam_search_llm_only,
     "beam_search_smart_prm_only": beam_search_smart_prm_only,
@@ -175,7 +177,11 @@ def main():
     elif config.score_method == "uhead":
         if not config.smart_search:
             raise ValueError("uhead score_method requires smart_search=True")
-        approach_name = "beam_search_smart_uhead"
+        # Check if using uhead_only mode (no vllm)
+        if getattr(config, "use_uhead_only", False):
+            approach_name = "beam_search_smart_uhead_only"
+        else:
+            approach_name = "beam_search_smart_uhead"
     else:
         approach_suffix = "_smart" if config.smart_search else ""
         if config.score_method == "conf":
@@ -489,34 +495,53 @@ def main():
             allocation_msg += f", UHead reserve={uhead_memory_gb}GB"
         logger.info(allocation_msg)
         
-        # SLM: Dynamic allocation based on GPU size
-        slm = LLM(
-            model=config.draft_model_path,
-            gpu_memory_utilization=vllm_ratio,
-            enable_prefix_caching=True,
-            seed=config.seed,
-            tensor_parallel_size=num_gpus,
-            max_model_len=2048,  # Reduced from 8192 to save KV cache memory
-        )
-
-        # LLM: Dynamic max memory based on GPU size
-        max_memory_map = {i: f"{llm_memory_gb}GiB" for i in range(num_gpus or 1)}
-        llm_load_kwargs = {
-            "device_map": "auto",
-            "max_memory": max_memory_map,
-        }
-        if use_8bit_llm:
-            if BitsAndBytesConfig is None:
-                raise ImportError("bitsandbytes is required for 8-bit loading but is not installed.")
-            llm_load_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
-            llm_load_kwargs["torch_dtype"] = torch.float16
-            logger.info("Loading main LLM in 8-bit quantized mode for GPU fit.")
+        # Check if using uhead_only mode (no vllm, no separate slm)
+        use_uhead_only = getattr(config, "use_uhead_only", False)
+        
+        # SLM: Dynamic allocation based on GPU size (skip if use_uhead_only)
+        if use_uhead_only:
+            # In uhead_only mode, UHead serves as both SLM and scorer, no vLLM needed
+            slm = None
+            logger.info("Skipping SLM initialization (use_uhead_only=True, UHead will serve as both SLM and scorer)")
         else:
-            llm_load_kwargs["torch_dtype"] = torch.bfloat16
-        llm = AutoModelForCausalLM.from_pretrained(
-            config.model_path,
-            **llm_load_kwargs,
-        ).eval()
+            # Validate draft_model_path is set before initializing SLM
+            if not config.draft_model_path:
+                raise ValueError(
+                    "draft_model_path must be set for SMART search with vLLM. "
+                    "Either provide --draft_model_path or use --use_uhead_only true to use UHead as both SLM and scorer."
+                )
+            slm = LLM(
+                model=config.draft_model_path,
+                gpu_memory_utilization=vllm_ratio,
+                enable_prefix_caching=True,
+                seed=config.seed,
+                tensor_parallel_size=num_gpus,
+                max_model_len=2048,  # Reduced from 8192 to save KV cache memory
+            )
+
+        # LLM: Dynamic max memory based on GPU size (skip if use_uhead_only)
+        if use_uhead_only:
+            # In uhead_only mode, UHead will load its own base model, no separate LLM needed
+            llm = None
+            logger.info("Skipping LLM initialization (use_uhead_only=True, UHead will load its own base model)")
+        else:
+            max_memory_map = {i: f"{llm_memory_gb}GiB" for i in range(num_gpus or 1)}
+            llm_load_kwargs = {
+                "device_map": "auto",
+                "max_memory": max_memory_map,
+            }
+            if use_8bit_llm:
+                if BitsAndBytesConfig is None:
+                    raise ImportError("bitsandbytes is required for 8-bit loading but is not installed.")
+                llm_load_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+                llm_load_kwargs["torch_dtype"] = torch.float16
+                logger.info("Loading main LLM in 8-bit quantized mode for GPU fit.")
+            else:
+                llm_load_kwargs["torch_dtype"] = torch.bfloat16
+            llm = AutoModelForCausalLM.from_pretrained(
+                config.model_path,
+                **llm_load_kwargs,
+            ).eval()
 
         if config.score_method == "prm" or approach_name == "beam_search_smart_prm_only":
             prm = load_prm(config, max_memory_gb=prm_memory_gb)
@@ -541,63 +566,136 @@ def main():
         elif config.score_method == "uhead":
             prm = None
             
-            # Load uhead and create UHeadScorer
+            # Check if using uhead_only mode (no vllm)
+            use_uhead_only = getattr(config, "use_uhead_only", False)
+            
+            # Load uhead and create scorer
             from luh import AutoUncertaintyHead
-            from sal.search.beam_search_smart_uhead import UHeadScorer
             from transformers import AutoTokenizer
             
-            # Determine which model to use for uhead (uq_model_path if specified, otherwise model_path)
-            uhead_base_model_path = getattr(config, "uq_model_path", None) or config.model_path
-            logger.info(f"Loading base model for uhead from: {uhead_base_model_path}")
-            
-            # Load base model for uhead (should match the uhead's base model)
-            # For 40GB GPUs, set max_memory limit to prevent OOM
-            uhead_load_kwargs = {
-                "device_map": "auto",
-                "torch_dtype": torch.bfloat16,
-            }
-            # Only set max_memory for 40GB GPUs (gpu_memory_gb > 35 and <= 70) with uhead method
-            if gpu_memory_gb > 35 and gpu_memory_gb <= 70 and uhead_memory_gb > 0:
-                max_memory_map = {i: f"{uhead_memory_gb}GiB" for i in range(num_gpus or 1)}
-                uhead_load_kwargs["max_memory"] = max_memory_map
-                logger.info(f"Setting max_memory={uhead_memory_gb}GB for UHead base model (40GB GPU)")
-            
-            uhead_base_llm = AutoModelForCausalLM.from_pretrained(
-                uhead_base_model_path,
-                **uhead_load_kwargs,
-            ).eval()
-            
-            # Load tokenizer
-            uhead_tokenizer = AutoTokenizer.from_pretrained(uhead_base_model_path)
-            if uhead_tokenizer.pad_token is None:
-                uhead_tokenizer.pad_token = uhead_tokenizer.eos_token
-            
-            # Load uhead
-            uhead_path = getattr(config, "uq_head_path", None)
-            if uhead_path is None:
-                raise ValueError("uq_head_path must be specified when using uhead score_method")
-            logger.info(f"Loading uhead from: {uhead_path}")
-            uhead = AutoUncertaintyHead.from_pretrained(uhead_path, base_model=uhead_base_llm)
-            
-            # Create UHeadScorer
-            uhead_scorer = UHeadScorer(
-                llm=uhead_base_llm,
-                uhead=uhead,
-                tokenizer=uhead_tokenizer,
-                config=config,
-                device="cuda",
-            )
-            logger.info("UHeadScorer created successfully")
+            if use_uhead_only:
+                # uhead_only mode: use UHeadOnlyScorer (no vllm, no separate llm)
+                from sal.search.beam_search_smart_uhead_only import UHeadOnlyScorer
+                
+                # Determine which model to use for uhead
+                uhead_base_model_path = getattr(config, "uq_model_path", None) or config.model_path
+                logger.info(f"Loading base model for uhead_only from: {uhead_base_model_path}")
+                
+                # Load base model for uhead (should match the uhead's base model)
+                uhead_load_kwargs = {
+                    "device_map": "auto",
+                    "torch_dtype": torch.bfloat16,
+                }
+                # For uhead_only, allocate more memory since it's the only model
+                if gpu_memory_gb > 35 and gpu_memory_gb <= 70:
+                    # 40GB GPU: allocate more memory for uhead_only
+                    uhead_memory_gb = max(30, int(gpu_memory_gb * 0.75))
+                    max_memory_map = {i: f"{uhead_memory_gb}GiB" for i in range(num_gpus or 1)}
+                    uhead_load_kwargs["max_memory"] = max_memory_map
+                    logger.info(f"Setting max_memory={uhead_memory_gb}GB for UHead base model (uhead_only mode, 40GB GPU)")
+                elif gpu_memory_gb > 70:
+                    # 80GB GPU: can use more memory
+                    uhead_memory_gb = max(50, int(gpu_memory_gb * 0.70))
+                    max_memory_map = {i: f"{uhead_memory_gb}GiB" for i in range(num_gpus or 1)}
+                    uhead_load_kwargs["max_memory"] = max_memory_map
+                    logger.info(f"Setting max_memory={uhead_memory_gb}GB for UHead base model (uhead_only mode, 80GB GPU)")
+                
+                uhead_base_llm = AutoModelForCausalLM.from_pretrained(
+                    uhead_base_model_path,
+                    **uhead_load_kwargs,
+                ).eval()
+                
+                # Load tokenizer
+                uhead_tokenizer = AutoTokenizer.from_pretrained(uhead_base_model_path)
+                if uhead_tokenizer.pad_token is None:
+                    uhead_tokenizer.pad_token = uhead_tokenizer.eos_token
+                
+                # Load uhead
+                uhead_path = getattr(config, "uq_head_path", None)
+                if uhead_path is None:
+                    raise ValueError("uq_head_path must be specified when using uhead score_method")
+                logger.info(f"Loading uhead from: {uhead_path}")
+                uhead = AutoUncertaintyHead.from_pretrained(uhead_path, base_model=uhead_base_llm)
+                
+                # Create UHeadOnlyScorer
+                uhead_scorer = UHeadOnlyScorer(
+                    llm=uhead_base_llm,
+                    uhead=uhead,
+                    tokenizer=uhead_tokenizer,
+                    config=config,
+                    device="cuda",
+                )
+                logger.info("UHeadOnlyScorer created successfully (uhead_only mode)")
+                
+                # No vllm or separate llm needed
+                slm = None
+                llm = None
+                
+                dataset = get_dataset(config)
+                dataset = dataset.map(
+                    approach_fn,
+                    batched=True,
+                    batch_size=config.search_batch_size,
+                    fn_kwargs={"config": config, "uhead_scorer": uhead_scorer},
+                    desc="Running search (uhead_only)",
+                    load_from_cache_file=False,
+                )
+            else:
+                # Original uhead mode: use UHeadScorer with vllm
+                from sal.search.beam_search_smart_uhead import UHeadScorer
+                
+                # Determine which model to use for uhead (uq_model_path if specified, otherwise model_path)
+                uhead_base_model_path = getattr(config, "uq_model_path", None) or config.model_path
+                logger.info(f"Loading base model for uhead from: {uhead_base_model_path}")
+                
+                # Load base model for uhead (should match the uhead's base model)
+                # For 40GB GPUs, set max_memory limit to prevent OOM
+                uhead_load_kwargs = {
+                    "device_map": "auto",
+                    "torch_dtype": torch.bfloat16,
+                }
+                # Only set max_memory for 40GB GPUs (gpu_memory_gb > 35 and <= 70) with uhead method
+                if gpu_memory_gb > 35 and gpu_memory_gb <= 70 and uhead_memory_gb > 0:
+                    max_memory_map = {i: f"{uhead_memory_gb}GiB" for i in range(num_gpus or 1)}
+                    uhead_load_kwargs["max_memory"] = max_memory_map
+                    logger.info(f"Setting max_memory={uhead_memory_gb}GB for UHead base model (40GB GPU)")
+                
+                uhead_base_llm = AutoModelForCausalLM.from_pretrained(
+                    uhead_base_model_path,
+                    **uhead_load_kwargs,
+                ).eval()
+                
+                # Load tokenizer
+                uhead_tokenizer = AutoTokenizer.from_pretrained(uhead_base_model_path)
+                if uhead_tokenizer.pad_token is None:
+                    uhead_tokenizer.pad_token = uhead_tokenizer.eos_token
+                
+                # Load uhead
+                uhead_path = getattr(config, "uq_head_path", None)
+                if uhead_path is None:
+                    raise ValueError("uq_head_path must be specified when using uhead score_method")
+                logger.info(f"Loading uhead from: {uhead_path}")
+                uhead = AutoUncertaintyHead.from_pretrained(uhead_path, base_model=uhead_base_llm)
+                
+                # Create UHeadScorer
+                uhead_scorer = UHeadScorer(
+                    llm=uhead_base_llm,
+                    uhead=uhead,
+                    tokenizer=uhead_tokenizer,
+                    config=config,
+                    device="cuda",
+                )
+                logger.info("UHeadScorer created successfully")
 
-            dataset = get_dataset(config)
-            dataset = dataset.map(
-                approach_fn,
-                batched=True,
-                batch_size=config.search_batch_size,
-                fn_kwargs={"config": config, "slm": slm, "uhead_scorer": uhead_scorer, "llm": llm},
-                desc="Running search",
-                load_from_cache_file=False,
-            )
+                dataset = get_dataset(config)
+                dataset = dataset.map(
+                    approach_fn,
+                    batched=True,
+                    batch_size=config.search_batch_size,
+                    fn_kwargs={"config": config, "slm": slm, "uhead_scorer": uhead_scorer, "llm": llm},
+                    desc="Running search",
+                    load_from_cache_file=False,
+                )
         elif config.score_method == "conf":
             # Confidence-based scoring doesn't need PRM model
             prm = None

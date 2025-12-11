@@ -20,16 +20,16 @@ from typing import List
 import numpy as np
 import torch
 from tqdm import tqdm
-from vllm import LLM, SamplingParams
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.generation.stopping_criteria import StopStringCriteria
+from transformers import GenerationConfig
 
 from sal.config import Config
-from sal.models.reward_models import PRM
+from sal.utils.score import aggregate_scores
 
-from .utils import Beam, build_conv, generate_k_steps, last, generate_k_steps_for_llm
+from .utils import Beam, build_conv
 
 logger = logging.getLogger()
-from sal.utils.score import aggregate_scores
 
 # UHead related imports
 from typing import List, Tuple
@@ -39,8 +39,9 @@ from luh.calculator_infer_luh import CalculatorInferLuh
 from luh.calculator_apply_uq_head import CalculatorApplyUQHead
 from luh.luh_claim_estimator_dummy import LuhClaimEstimatorDummy
 
-class UHeadScorer:
-    """Scorer using uncertainty head to score steps, similar to PRM interface."""
+
+class UHeadOnlyScorer:
+    """Scorer using uncertainty head to score steps, and also generate text using uhead."""
     
     def __init__(
         self,
@@ -56,14 +57,10 @@ class UHeadScorer:
         self.config = config
         self.device = device
         
-        # Configure chat template to match SLM generation format
-        if config.custom_chat_template is not None:
-            self.tokenizer.chat_template = config.custom_chat_template
-        
         # Initialize calculators
         self.calc_infer_llm = CalculatorInferLuh(
             self.uhead,
-            tokenize=False,
+            tokenize=True,  # Must be True to use model.tokenize() instead of raw texts
             args_generate={},
             device=device,
             generations_cache_dir="",
@@ -107,13 +104,6 @@ class UHeadScorer:
     ) -> Claim:
         """
         Convert a step text to a Claim object with token alignment.
-        
-        Args:
-            step_text: The text of the step
-            full_tokens: The actual tokenized sequence (from tokenizer)
-            context_length: Length of the context (prompt)
-            tokenizer: Tokenizer instance
-            max_seq_len: Maximum sequence length (to ensure bounds)
         """
         # Tokenize step
         step_tokens = tokenizer.encode(step_text, add_special_tokens=False)
@@ -132,7 +122,6 @@ class UHeadScorer:
         
         # If not found, use heuristic: try to find a partial match
         if not aligned_token_ids:
-            # Try to find at least the first few tokens
             for match_len in range(len(step_tokens), 0, -1):
                 for i in range(search_start, search_end - match_len + 1):
                     window = full_tokens[i : i + match_len]
@@ -144,19 +133,15 @@ class UHeadScorer:
                     break
         
         # aligned_token_ids should be relative to generated tokens (0-indexed)
-        # Subtract context_length to make them relative to generated part
         aligned_token_ids_relative = [tid - context_length for tid in aligned_token_ids if tid >= context_length]
         
-        # Ensure all indices are valid (non-negative and within bounds)
-        # The maximum valid index is min(len(full_tokens), max_seq_len) - context_length - 1
         max_valid_idx = min(search_end - context_length - 1, max_seq_len - context_length - 1)
         if max_valid_idx < 0:
             max_valid_idx = 0
         aligned_token_ids_relative = [tid for tid in aligned_token_ids_relative if 0 <= tid <= max_valid_idx]
         
-        # If no valid tokens found, use a fallback (just use the first few generated tokens)
+        # If no valid tokens found, use a fallback
         if not aligned_token_ids_relative:
-            # Fallback: use first few tokens of generated part
             fallback_len = min(len(step_tokens), max_valid_idx + 1)
             if fallback_len > 0:
                 aligned_token_ids_relative = list(range(fallback_len))
@@ -166,6 +151,83 @@ class UHeadScorer:
             sentence=step_text,
             aligned_token_ids=aligned_token_ids_relative,
         )
+    
+    def generate_text(
+        self,
+        prompts: List[str],
+        max_new_tokens: int,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        stop_strings: List[str] = None,
+    ) -> List[dict]:
+        """
+        Generate text using uhead (via CalculatorInferLuh).
+        Returns list of dicts with keys: 'text', 'tokens', 'stop_reason', 'completion_tokens'
+        
+        Note: This should align with vLLM's generate_k_steps behavior:
+        - First step uses config.temperature (sampling)
+        - Subsequent steps use temperature=0.0 (greedy)
+        - No min_new_tokens constraint (unlike CalculatorInferLuh default)
+        """
+        if stop_strings is None:
+            stop_strings = ["\n\n"]
+        
+        # Prepare generation kwargs
+        gen_kwargs = {}
+        
+        if temperature > 0.0:
+            gen_kwargs["do_sample"] = True
+            gen_kwargs["temperature"] = temperature
+            if top_p < 1.0:
+                gen_kwargs["top_p"] = top_p
+        else:
+            gen_kwargs["do_sample"] = False
+        
+        # Add stopping criteria if needed
+        if stop_strings:
+            stopping_criteria = StopStringCriteria(stop_strings=stop_strings, tokenizer=self.tokenizer)
+            gen_kwargs["stopping_criteria"] = [stopping_criteria]
+        
+        # IMPORTANT: Override min_new_tokens to 0 (or remove it) to match vLLM behavior
+        # CalculatorInferLuh defaults to min_new_tokens=2, but vLLM doesn't have this constraint
+        gen_kwargs["min_new_tokens"] = 0
+        
+        # Use CalculatorInferLuh to generate text
+        deps = {}
+        result_dict = self.calc_infer_llm(
+            deps,
+            texts=prompts,
+            model=self.model_adapter,
+            max_new_tokens=max_new_tokens,
+            **gen_kwargs,
+        )
+        
+        # Extract results
+        results = []
+        for i, (prompt, generated_text, generated_tokens) in enumerate(zip(
+            prompts, result_dict["greedy_texts"], result_dict["greedy_tokens"]
+        )):
+            # Determine stop reason
+            stop_reason = None
+            if generated_text.endswith("\n\n"):
+                stop_reason = "\n\n"
+            elif len(generated_text) == 0:
+                stop_reason = "EOS"
+            elif len(generated_tokens) >= max_new_tokens:
+                stop_reason = "length"
+            else:
+                stop_reason = "EOS"
+            
+            results.append({
+                "text": generated_text,
+                "tokens": generated_tokens,
+                "stop_reason": stop_reason,
+                "completion_tokens": len(generated_tokens),
+                "result_dict": result_dict,  # Keep full result for scoring
+                "index": i,
+            })
+        
+        return results
     
     def score(
         self, questions: List[str], outputs: List[List[str]], batch_size: int = 8
@@ -179,28 +241,11 @@ class UHeadScorer:
             question_scores = []
             
             for output in output_list:
-                # Build conversation format (same as SLM generation)
-                conv = build_conv(question, output, self.config.system_prompt)
+                # Prepare full text
+                prompt = self.config.system_prompt + "\n" + question + "\n"
+                full_text = prompt + output
                 
-                # Apply chat template to format the conversation
-                # Use continue_final_message=True to match generation format when output exists
-                full_text = self.tokenizer.apply_chat_template(
-                    conv,
-                    add_generation_prompt=False,  # We already have the output
-                    continue_final_message=True if output else False,  # Match generation format
-                    tokenize=False,
-                )
-                
-                # Build prompt-only version for context length calculation
-                prompt_conv = build_conv(question, "", self.config.system_prompt)
-                prompt_text = self.tokenizer.apply_chat_template(
-                    prompt_conv,
-                    add_generation_prompt=True,  # Add generation prompt to match generation format
-                    continue_final_message=False,  # No output yet
-                    tokenize=False,
-                )
-                
-                # Prepare inputs for inference (tokenize first to get actual sequence)
+                # Prepare inputs for inference
                 inputs = self.tokenizer(
                     full_text, return_tensors="pt", padding=True, truncation=True
                 ).to(self.device)
@@ -209,12 +254,9 @@ class UHeadScorer:
                 input_ids = inputs["input_ids"][0].cpu().tolist()
                 actual_seq_len = inputs["attention_mask"].shape[1]
                 
-                # Tokenize prompt separately to get context length (using chat template format)
-                prompt_inputs = self.tokenizer(
-                    prompt_text, return_tensors="pt", padding=False, truncation=False
-                )
-                context_length = prompt_inputs["input_ids"].shape[1]
-                # Adjust context_length if it exceeds actual sequence length
+                # Tokenize prompt separately to get context length
+                prompt_tokens = self.tokenizer.encode(prompt, add_special_tokens=False)
+                context_length = len(prompt_tokens)
                 context_length = min(context_length, actual_seq_len)
                 
                 # Extract steps from output
@@ -224,7 +266,7 @@ class UHeadScorer:
                     question_scores.append([])
                     continue
                 
-                # Convert steps to claims using actual tokenized sequence
+                # Convert steps to claims
                 claims = []
                 for step in steps:
                     claim = self.step_to_claim(
@@ -259,8 +301,6 @@ class UHeadScorer:
                 
                 # Get uhead features
                 with torch.no_grad():
-                    # Create an object that supports both dict access and attribute access
-                    # feature_extractor uses llm_outputs["logits"] (dict) and llm_outputs.context_lengths (attr)
                     class ModelOutputsWrapper:
                         def __init__(self, logits, context_lengths, hidden_states=None, attentions=None):
                             self.logits = logits
@@ -269,7 +309,6 @@ class UHeadScorer:
                             self.attentions = attentions
                         
                         def __getitem__(self, key):
-                            # Support dict-style access
                             if key == "logits":
                                 return self.logits
                             elif key == "context_lengths":
@@ -322,15 +361,107 @@ class UHeadScorer:
         return all_scores
 
 
-def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHeadScorer, llm: None) -> tuple[list[Beam], int]:
-    sampling_params = SamplingParams(
-        temperature=config.temperature,
-        max_tokens=config.max_tokens,
-        top_p=config.top_p,
-        stop=["\n\n"],
-        include_stop_str_in_output=True,
-        n=1,
-    )
+def generate_k_steps_uhead(
+    tokenizer,
+    templated_convs,
+    lookahead_steps: int,
+    uhead_scorer: UHeadOnlyScorer,
+    config: Config,
+    beam_width: int,
+    use_stop_criteria: bool = True,
+) -> list[Beam]:
+    """Generate k steps using uhead (no vllm)."""
+    gen_results = []
+    for i, text in enumerate(templated_convs):
+        for j in range(beam_width):
+            gen_result = {
+                "index": i,
+                "initial_prompt": text,
+                "first_step_text": "",
+                "lookahead_text": "",
+                "completion_tokens": 0,
+                "stop_reason": None,
+                "first_step_stop_reason": None,
+            }
+            gen_results.append(gen_result)
+    
+    stopping_criteria = StopStringCriteria(stop_strings="\n\n", tokenizer=tokenizer) if use_stop_criteria else None
+    
+    for i in range(lookahead_steps + 1):
+        # Get all generations that did not finish
+        current_gen = [
+            gen_result
+            for gen_result in gen_results
+            if gen_result["stop_reason"] != "EOS"
+        ]
+        gen_prompts = [
+            gen_result["initial_prompt"] + gen_result["lookahead_text"]
+            for gen_result in current_gen
+        ]
+        
+        if len(gen_prompts) == 0:
+            break
+        
+        # Generate using uhead
+        temperature = config.temperature if i == 0 else 0.0
+        results = uhead_scorer.generate_text(
+            prompts=gen_prompts,
+            max_new_tokens=config.max_tokens,
+            temperature=temperature,
+            top_p=config.top_p,
+            stop_strings=["\n\n"] if use_stop_criteria else None,
+        )
+        
+        for gen_result, result in zip(current_gen, results):
+            new_step = result["text"]
+            stop_reason = result["stop_reason"]
+            completion_tokens = result["completion_tokens"]
+            
+            if i == 0:
+                gen_result["first_step_text"] = new_step
+                gen_result["first_step_stop_reason"] = stop_reason
+            
+            gen_result["lookahead_text"] = gen_result["lookahead_text"] + new_step
+            gen_result["completion_tokens"] = completion_tokens
+            gen_result["stop_reason"] = stop_reason
+    
+    # Convert to Beam objects
+    outputs: list[Beam] = []
+    counter = 0
+    for i, text in enumerate(templated_convs):
+        next_texts = []
+        stop_reasons = []
+        lookahead_texts = []
+        num_completion_tokens = []
+        for j in range(beam_width):
+            gen_result = gen_results[counter]
+            next_texts.append(gen_result["first_step_text"])
+            lookahead_texts.append(gen_result["lookahead_text"])
+            stop_reasons.append(gen_result["first_step_stop_reason"])
+            num_completion_tokens.append(gen_result["completion_tokens"])
+            counter += 1
+        
+        beam_result = Beam(
+            prompt=text,
+            index=i,
+            current_text="",
+            next_texts=next_texts,
+            lookahead_texts=lookahead_texts,
+            completion_tokens=num_completion_tokens,
+            stop_reasons=stop_reasons,
+            best_scores=[0.0],
+            all_scores=[],
+            previous_text=None,
+            pruned=False,
+            history=[],
+        )
+        outputs.append(beam_result)
+    
+    return outputs
+
+
+def _beam_search(batch_of_prompts, config: Config, uhead_scorer: UHeadOnlyScorer) -> tuple[list[Beam], int]:
+    """Beam search using uhead as both slm and scorer."""
     
     beams: list[Beam] = []
     for prompt in batch_of_prompts:
@@ -343,7 +474,7 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
                     next_texts=None,
                     lookahead_texts=None,
                     pruned=False,
-                    completed=False,  # New flag to track completion
+                    completed=False,
                     stop_reasons=None,
                     history=[],
                     best_scores=[],
@@ -356,18 +487,21 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
                     llm_tokens=[],
                 )
             )
-
+    
     completed_beams: list[Beam] = []
     total_tokens = 0
-    smart_done = False
     
-    for iterate_idx in tqdm(range(config.num_iterations), desc="Beam search iterations (UHead)"):
+    tokenizer = uhead_scorer.tokenizer
+    if config.custom_chat_template is not None:
+        tokenizer.chat_template = config.custom_chat_template
+    
+    for iterate_idx in tqdm(range(config.num_iterations), desc="Beam search iterations (UHead Only)"):
         if iterate_idx == 0:
             active_beams = [b for b in beams if not b.pruned]
         else:
             active_beams = [b for b in active_beams if not b.pruned]
-
-        # Duplicate active beams to ensure that we have config.n beams per iteration
+        
+        # Duplicate active beams to ensure we have config.n beams per iteration
         if len(active_beams) != config.n:
             repeats = (config.n // len(active_beams)) + 1
             logger.debug(
@@ -381,41 +515,33 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
                 raise ValueError(
                     f"Expected {config.n} active beams, but got {len(active_beams)}"
                 )
-
-        if iterate_idx == config.num_iterations - 1:
-            # Last iteration, generate to EOS (remove stop conditions)
-            sampling_params = SamplingParams(
-                temperature=config.temperature,
-                max_tokens=config.max_tokens,
-                top_p=config.top_p,
-                stop=[],  # Remove stop conditions to ensure generation completes
-                n=1,
-            )
-
+        
+        # Build conversations
         convs = [
             build_conv(b.prompt, b.current_text, config.system_prompt)
             for b in active_beams
         ]
         continue_final_message = iterate_idx > 0
         add_generation_prompt = iterate_idx == 0
-
-        tokenizer = slm.get_tokenizer()
-        if config.custom_chat_template is not None:
-            tokenizer.chat_template = config.custom_chat_template
+        
         templated_convs = tokenizer.apply_chat_template(
             convs,
             add_generation_prompt=add_generation_prompt,
             continue_final_message=continue_final_message,
             tokenize=False,
         )
+        
         lookahead = 0 if iterate_idx == config.num_iterations - 1 else config.lookahead
-        gen_results = generate_k_steps(
-            templated_convs, lookahead, slm, sampling_params, 1
+        use_stop_criteria = iterate_idx != config.num_iterations - 1
+        
+        # Generate using uhead
+        gen_results = generate_k_steps_uhead(
+            tokenizer, templated_convs, lookahead, uhead_scorer, config, 1, use_stop_criteria=use_stop_criteria
         )
         
         prev_active_beams = copy.deepcopy(active_beams)
-
-        # copy the active beams to regenerate the beams with llm
+        
+        # Update beams with generation results
         prompts, completions = [], []
         for beam, gen_result in zip(active_beams, gen_results, strict=True):
             beam.next_texts = gen_result.next_texts
@@ -426,7 +552,7 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
             beam.current_text += beam.next_texts[0]
             beam.history.append(beam.next_texts[0])
             total_tokens += sum(gen_result.completion_tokens)
-
+            
             history_text = " ".join(beam.history)
             if len(tokenizer.encode(history_text)) > 2048:
                 beam.completed = True
@@ -440,76 +566,67 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
                 beam.completed = True
                 completed_beams.append(beam)
             elif iterate_idx == config.num_iterations - 1:
-                # Last iteration: force completion even if stop condition was triggered
                 beam.completed = True
                 if beam.stop_reasons[0] not in ["EOS", "length"]:
-                    # Mark as completed due to reaching max iterations
                     beam.stop_reasons = ["max_iterations"]
                 completed_beams.append(beam)
             prompts.append(beam.prompt)
             completions.append([beam.current_text])
-
+        
+        # Score using uhead
         scores = uhead_scorer.score(prompts, completions)
-
+        
         agg_scores = [
             [aggregate_scores(s, config.agg_strategy) for s in score]
             for score in scores
         ]
-
+        
         for beam, score in zip(active_beams, scores, strict=True):
             if score and len(score) > 0:
                 beam.all_scores = score[0]
             else:
                 beam.all_scores = []
-
-        # Now filter active_beams and agg_scores for beams that are completed
+        
+        # Filter active_beams and agg_scores for beams that are completed
         agg_scores = [
             agg_scores[i] for i, b in enumerate(active_beams) if not b.completed
         ]
-        
         prev_active_beams = [b for idx, b in enumerate(prev_active_beams) if not active_beams[idx].completed]
         active_beams = [b for b in active_beams if not b.completed]
-
+        
         # Early stopping if all beams are completed
         if len(active_beams) == 0:
             break
         if not config.sort_completed and len(completed_beams) >= config.n:
             break
-
+        
         # Filter duplicate active beams
         if config.filter_duplicates:
-            # Create a dictionary to filter duplicates and retain order
             unique_beam_dict = {}
             for i, b in enumerate(active_beams):
                 if b.current_text not in unique_beam_dict:
-                    unique_beam_dict[b.current_text] = (
-                        i  # Map the unique text to its index
-                    )
+                    unique_beam_dict[b.current_text] = i
             active_beams = [active_beams[i] for i in unique_beam_dict.values()]
             prev_active_beams = [prev_active_beams[i] for i in unique_beam_dict.values()]
             agg_scores = [agg_scores[i] for i in unique_beam_dict.values()]
-
+        
         # Get indices for top (config.n / config.beam_width) completions
         top_indices = np.argsort(np.array(agg_scores).flatten())[
             -(config.n // config.beam_width) :
         ]
-
+        
         for idx, beam in enumerate(active_beams):
             if idx not in top_indices:
                 beam.pruned = True
-                
-        # SMART beam search implementation       
-        # # filter the pruned beams with low scores
-        # active_beams = [b for b in active_beams if not b.pruned]
-        # agg_scores = [agg_scores[idx] for idx in top_indices]
         
-        re_indices = [top_idx for top_idx in top_indices if agg_scores[top_idx][0] > config.threshold]  # uhead returns uncertainty scores (higher = more uncertain)
+        # SMART beam search: filter beams with high uncertainty (uhead returns uncertainty scores)
+        re_indices = [top_idx for top_idx in top_indices if agg_scores[top_idx][0] > config.threshold]
         if len(re_indices) == 0:
             continue
         
-        smart_done = True
-        re_beams = [prev_active_beams[idx] for idx in re_indices]          
+        re_beams = [prev_active_beams[idx] for idx in re_indices]
         
+        # Regenerate using uhead
         convs = [
             build_conv(b.prompt, b.current_text, config.system_prompt)
             for b in re_beams
@@ -517,9 +634,6 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
         continue_final_message = iterate_idx > 0
         add_generation_prompt = iterate_idx == 0
         
-        tokenizer = AutoTokenizer.from_pretrained(config.model_path)
-        if config.custom_chat_template is not None:
-            tokenizer.chat_template = config.custom_chat_template
         templated_convs = tokenizer.apply_chat_template(
             convs,
             add_generation_prompt=add_generation_prompt,
@@ -527,21 +641,20 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
             tokenize=False,
         )
         lookahead = 0 if iterate_idx == config.num_iterations - 1 else config.lookahead
-        # On last iteration, disable stop criteria to ensure generation completes
         use_stop_criteria = iterate_idx != config.num_iterations - 1
-        gen_results = generate_k_steps_for_llm(
-            tokenizer, templated_convs, lookahead, llm, config, 1, use_stop_criteria=use_stop_criteria
+        
+        gen_results = generate_k_steps_uhead(
+            tokenizer, templated_convs, lookahead, uhead_scorer, config, 1, use_stop_criteria=use_stop_criteria
         )
-
+        
         reprompts, recompletions = [], []
         for beam, gen_result in zip(re_beams, gen_results, strict=True):
-            # update the beam
             beam.next_texts = gen_result.next_texts
             beam.stop_reasons = gen_result.stop_reasons
             beam.lookahead_texts = gen_result.lookahead_texts
             beam.current_text += beam.next_texts[0]
             beam.history.append(beam.next_texts[0])
-
+            
             if (
                 beam.stop_reasons[0] == "EOS"
                 or beam.stop_reasons[0] == "length"
@@ -550,15 +663,14 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
                 beam.completed = True
                 completed_beams.append(beam)
             elif iterate_idx == config.num_iterations - 1:
-                # Last iteration: force completion even if stop condition was triggered
                 beam.completed = True
                 if beam.stop_reasons[0] not in ["EOS", "length"]:
-                    # Mark as completed due to reaching max iterations
                     beam.stop_reasons = ["max_iterations"]
                 completed_beams.append(beam)
             reprompts.append(beam.prompt)
             recompletions.append([beam.current_text])
-
+        
+        # Re-score using uhead
         re_scores = uhead_scorer.score(reprompts, recompletions)
         reagg_scores = [
             [aggregate_scores(s, config.agg_strategy) for s in score]
@@ -570,9 +682,8 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
                 beam.all_scores = score[0]
             else:
                 beam.all_scores = []
-
+        
         for i, (re_idx, beam) in enumerate(zip(re_indices, re_beams)):
-            # log correction information
             beam.smart_step.append(iterate_idx)
             beam.gen_update.append((active_beams[re_idx].next_texts[0], beam.next_texts[0]))
             old_agg = agg_scores[re_idx][0] if re_idx < len(agg_scores) else 0.0
@@ -583,7 +694,6 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
             active_beams[re_idx] = beam
     
     # After all iterations, mark any remaining active beams as completed
-    # This ensures we always have completed beams, especially for n=1 case
     for beam in active_beams:
         if not beam.completed:
             beam.completed = True
@@ -602,13 +712,9 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
         )[: config.n]
     else:
         completed_beams = completed_beams[: config.n]
-
-    # Ensure we have exactly config.n beams (duplicate if needed)
-    # Note: completed_beams should never be empty because:
-    # 1. In the last iteration, all active_beams are force-completed (line 150-156)
-    # 2. After the loop, any remaining active_beams are force-completed (line 287-294)
+    
+    # Ensure we have exactly config.n beams
     if len(completed_beams) < config.n:
-        # If we don't have enough completed_beams, duplicate until we reach config.n
         repeats = (config.n // len(completed_beams)) + 1
         logger.debug(
             f"Extending completed_beams from {len(completed_beams)} to {config.n} with {repeats} repetitions"
@@ -617,12 +723,7 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
             copy.deepcopy(b) for b in (completed_beams * repeats)[: config.n]
         ]
         completed_beams = extended_completed_beams
-
-    # Print the problem information
-    # for problem, info in problem_info.items():
-    #     print(f"{{question: {problem}, generate_llm: {info['generate_llm']}, score_changed: {info['score_changed']}, text_changed: {info['text_changed']}}}")
-
-            
+    
     for beam in completed_beams:
         if len(beam.smart_step) == 0:
             beam.smart_step = [-1]
@@ -633,18 +734,27 @@ def _beam_search(batch_of_prompts, config: Config, slm: LLM, uhead_scorer: UHead
     return completed_beams, total_tokens
 
 
-def smart_beam_search(examples, config: Config, slm: LLM, uhead_scorer: UHeadScorer, llm: None):
+def smart_beam_search(examples, config: Config, uhead_scorer: UHeadOnlyScorer):
+    """Main entry point for uhead-only beam search."""
     problems = examples["problem"]
-    beam_results, total_tokens = _beam_search(problems, config, slm, uhead_scorer, llm)
-
+    beam_results, total_tokens = _beam_search(problems, config, uhead_scorer)
+    
     # Group together alike beams and store in the dataset
     grouped_results = defaultdict(list)
     for results in beam_results:
         grouped_results[results.prompt].append(results)
-
-    results = {"completions": [], "pred": [], "scores": [], "llm_tokens": [], "prm_update": [], "smart_step": [], "total_tokens": []}
-    tokenizer = slm.get_tokenizer()
-
+    
+    results = {
+        "completions": [],
+        "pred": [],
+        "scores": [],
+        "llm_tokens": [],
+        "prm_update": [],
+        "smart_step": [],
+        "total_tokens": []
+    }
+    tokenizer = uhead_scorer.tokenizer
+    
     for p in problems:
         beams = grouped_results[p]
         completions = [b.current_text for b in beams]
@@ -655,7 +765,6 @@ def smart_beam_search(examples, config: Config, slm: LLM, uhead_scorer: UHeadSco
         llm_tokens = [b.llm_tokens for b in beams]
         prm_updates = [getattr(b, "prm_update", []) for b in beams]
         smart_steps = [getattr(b, "smart_step", []) for b in beams]
-        # Calculate total tokens for each beam: sum of completion_tokens (draft model) + sum of llm_tokens (corrections)
         total_tokens_list = [sum(getattr(b, "completion_tokens", [])) + sum(getattr(b, "llm_tokens", [])) for b in beams]
         results["completions"].append(completions)
         results["pred"].append(pred)
@@ -665,3 +774,4 @@ def smart_beam_search(examples, config: Config, slm: LLM, uhead_scorer: UHeadSco
         results["smart_step"].append(smart_steps)
         results["prm_update"].append(prm_updates)
     return results
+

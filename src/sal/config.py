@@ -31,6 +31,7 @@ class Config:
         "/storage/ukp/shared/shared_model_weights/models--meta-llama--Llama-3.2-1B-Instruct"
     )
     uq_model_path: Optional[str] = None  # Optional override for UHead base LLM
+    use_uhead_only: bool = False  # Use uhead as both slm and scorer (no vllm)
     draft_model_path: str = None
     gpu_memory_utilization: float = (
         0.3  # Ratio for vLLM in SMART mode (auto-adapts to GPU size)
